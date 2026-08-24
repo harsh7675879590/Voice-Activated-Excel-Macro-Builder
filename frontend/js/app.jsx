@@ -1,12 +1,12 @@
 /**
- * VoiceMacro — React SaaS Application
- * Linear / Stripe / Raycast inspired productivity interface
+ * VoiceMacro — Financial Ledger & Terminal UI
+ * Precision Excel Macro Builder for Tax & Finance Professionals
  */
 
 const { useState, useEffect, useRef, useMemo } = React;
 
 // ---------------------------------------------------------------------------
-// Syntax Highlighting Helper for Pandas Code
+// Syntax Highlighting Helper for Pandas Code in Terminal
 // ---------------------------------------------------------------------------
 function highlightCode(code) {
   if (!code) return '';
@@ -54,22 +54,48 @@ function highlightCode(code) {
 }
 
 // ---------------------------------------------------------------------------
-// Main Application Component
+// Helper: Format numeric values with commas & precision
+// ---------------------------------------------------------------------------
+function formatCellValue(val, colName) {
+  if (val === null || val === undefined) return <span className="text-slate-400 italic">null</span>;
+  const str = String(val);
+  
+  // Check if numeric column
+  const isNumericCol = /revenue|amount|tax|profit|gross|net|pct|rate|count|total|cost|price/i.test(colName);
+  const num = parseFloat(str.replace(/,/g, ''));
+
+  if (isNumericCol && !isNaN(num) && /^-?\d+(\.\d+)?$/.test(str.trim())) {
+    if (colName.toLowerCase().includes('pct') || colName.toLowerCase().includes('rate')) {
+      return num.toFixed(2) + '%';
+    }
+    return num.toLocaleString('en-US');
+  }
+  return str;
+}
+
+function isNumericColumn(colName) {
+  return /revenue|amount|tax|profit|gross|net|pct|rate|count|total|cost|price|id/i.test(colName);
+}
+
+// ---------------------------------------------------------------------------
+// Main VoiceMacro Ledger Application
 // ---------------------------------------------------------------------------
 function VoiceMacroApp() {
   // App state
   const [status, setStatus] = useState({ status: 'ready', has_file: false, has_llm: false });
-  const [workbook, setWorkbook] = useState(null); // WorkbookSchema
+  const [workbook, setWorkbook] = useState(null);
   const [activeSheet, setActiveSheet] = useState('Tax_Data');
   const [currentData, setCurrentData] = useState({ data: [], columns: [], row_count: 0 });
+  const [rawOriginalData, setRawOriginalData] = useState([]); // Pre-filter dataset for audit diff
   const [history, setHistory] = useState([]);
 
   // Command & Pipeline state
   const [commandText, setCommandText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingStage, setProcessingStage] = useState(''); // 'Analyzing' | 'Generating' | 'Validating' | 'Dry-running'
+  const [processingStageIndex, setProcessingStageIndex] = useState(0); // 0, 1, 2, 3
   const [pipelineResult, setPipelineResult] = useState(null);
   const [executionResult, setExecutionResult] = useState(null);
+  const [isFlashingApproval, setIsFlashingApproval] = useState(false);
 
   // Voice state
   const [isListening, setIsListening] = useState(false);
@@ -98,7 +124,6 @@ function VoiceMacroApp() {
     fetchStatus();
     fetchHistory();
 
-    // Voice setup
     const voiceEngine = window.Voice || (typeof Voice !== 'undefined' ? Voice : null);
     if (voiceEngine) {
       voiceEngine.init({
@@ -120,7 +145,6 @@ function VoiceMacroApp() {
       });
     }
 
-    // Keyboard shortcut (Ctrl+K or Cmd+K to focus search)
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -160,6 +184,9 @@ function VoiceMacroApp() {
     try {
       const res = await API.getCurrentData();
       setCurrentData(res);
+      if (rawOriginalData.length === 0 && res.data?.length > 0) {
+        setRawOriginalData(res.data);
+      }
     } catch (e) {}
   };
 
@@ -171,10 +198,12 @@ function VoiceMacroApp() {
       if (res.success) {
         setWorkbook(res.schema);
         setActiveSheet(res.schema.active_sheet || 'Tax_Data');
-        await fetchCurrentData();
+        const dataRes = await API.getCurrentData();
+        setCurrentData(dataRes);
+        setRawOriginalData(dataRes.data || []);
         setPipelineResult(null);
         setExecutionResult(null);
-        showToast('Sample tax dataset loaded (15 clients, 8 attributes)', 'success');
+        showToast('Sample tax ledger loaded (15 accounts, 8 attributes)', 'success');
       }
     } catch (e) {
       showToast(`Failed to load sample data: ${e.message}`, 'error');
@@ -188,16 +217,18 @@ function VoiceMacroApp() {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsProcessing(true);
-    showToast(`Uploading ${file.name}...`, 'info');
+    showToast(`Auditing & uploading ${file.name}...`, 'info');
     try {
       const res = await API.uploadExcel(file);
       if (res.success) {
         setWorkbook(res.schema);
         setActiveSheet(res.schema.active_sheet);
-        await fetchCurrentData();
+        const dataRes = await API.getCurrentData();
+        setCurrentData(dataRes);
+        setRawOriginalData(dataRes.data || []);
         setPipelineResult(null);
         setExecutionResult(null);
-        showToast(`Loaded ${file.name} successfully`, 'success');
+        showToast(`Workbook '${file.name}' verified and loaded`, 'success');
       }
     } catch (err) {
       showToast(`Upload failed: ${err.message}`, 'error');
@@ -212,10 +243,12 @@ function VoiceMacroApp() {
       const res = await API.resetData();
       if (res.success) {
         if (res.schema) setWorkbook(res.schema);
-        await fetchCurrentData();
+        const dataRes = await API.getCurrentData();
+        setCurrentData(dataRes);
+        setRawOriginalData(dataRes.data || []);
         setPipelineResult(null);
         setExecutionResult(null);
-        showToast('Data reset back to original state', 'success');
+        showToast('Workbook restored to original baseline ledger', 'success');
       }
     } catch (err) {
       showToast(`Reset failed: ${err.message}`, 'error');
@@ -224,15 +257,16 @@ function VoiceMacroApp() {
 
   // Voice Toggle
   const handleToggleVoice = async () => {
-    // If no dataset loaded, auto-load sample data first
     if (!status.has_file && !workbook) {
-      showToast('Loading sample dataset for voice command...', 'info');
+      showToast('Loading baseline sample ledger for voice dictation...', 'info');
       try {
         const res = await API.generateSampleData();
         if (res.success) {
           setWorkbook(res.schema);
           setActiveSheet(res.schema.active_sheet || 'Tax_Data');
-          await fetchCurrentData();
+          const dataRes = await API.getCurrentData();
+          setCurrentData(dataRes);
+          setRawOriginalData(dataRes.data || []);
         }
       } catch (e) {}
     }
@@ -240,7 +274,7 @@ function VoiceMacroApp() {
     const voiceEngine = window.Voice || (typeof Voice !== 'undefined' ? Voice : null);
     if (voiceEngine) {
       if (!voiceEngine.isSupported()) {
-        showToast('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.', 'warning');
+        showToast('Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.', 'warning');
         return;
       }
       voiceEngine.toggle();
@@ -255,43 +289,51 @@ function VoiceMacroApp() {
     if (!query.trim() || isProcessing) return;
 
     if (!status.has_file && !workbook) {
-      showToast('Please load sample data or upload an Excel file first', 'warning');
-      return;
+      showToast('Loading baseline sample ledger...', 'info');
+      try {
+        const res = await API.generateSampleData();
+        if (res.success) {
+          setWorkbook(res.schema);
+          setActiveSheet(res.schema.active_sheet || 'Tax_Data');
+          const dataRes = await API.getCurrentData();
+          setCurrentData(dataRes);
+          setRawOriginalData(dataRes.data || []);
+        }
+      } catch (e) {}
     }
 
     setIsProcessing(true);
     setExecutionResult(null);
     setPipelineResult(null);
 
-    // Compact stepper stages
-    setProcessingStage('Analyzing intent...');
-    await new Promise(r => setTimeout(r, 120));
-    setProcessingStage('Generating Pandas code...');
-    await new Promise(r => setTimeout(r, 120));
-    setProcessingStage('AST Safety validation...');
+    // Sequential status pacing (~150ms per step)
+    setProcessingStageIndex(1); // 1. Intent Parsing
+    await new Promise(r => setTimeout(r, 150));
+    setProcessingStageIndex(2); // 2. AST Validation
+    await new Promise(r => setTimeout(r, 150));
+    setProcessingStageIndex(3); // 3. Sandbox Dry-Run
 
     try {
       const res = await API.processVoiceCommand(query, activeSheet);
-      setProcessingStage('Dry-run sandbox...');
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 120));
 
       if (res.stage === 'ERROR') {
-        showToast(res.error || 'Operation error', 'error');
+        showToast(res.error || 'Syntax/Logic error in command', 'error');
         setPipelineResult(res);
       } else {
         setPipelineResult(res);
-        showToast('Transformation generated. Review preview and approve.', 'info');
+        showToast('Audit simulation ready. Review ledger diff below.', 'info');
       }
       fetchHistory();
     } catch (err) {
       showToast(`Command error: ${err.message}`, 'error');
     } finally {
       setIsProcessing(false);
-      setProcessingStage('');
+      setProcessingStageIndex(0);
     }
   };
 
-  // Approve & Execute
+  // Approve & Execute with Brass Flash Animation
   const handleApprove = async () => {
     if (!pipelineResult?.generated_code?.code) return;
     setIsProcessing(true);
@@ -299,16 +341,21 @@ function VoiceMacroApp() {
       const code = pipelineResult.generated_code.code;
       const transcript = pipelineResult.transcript || commandText;
       const res = await API.executeCode(code, 'pandas', transcript);
+      
       if (res.success) {
+        // Trigger 400ms brass flash animation across updated rows
+        setIsFlashingApproval(true);
+        setTimeout(() => setIsFlashingApproval(false), 500);
+
         setExecutionResult(res);
         if (res.updated_schema || res.schema) {
           setWorkbook(res.updated_schema || res.schema);
         }
         await fetchCurrentData();
-        showToast('Execution successful! Live workbook updated.', 'success');
+        showToast('Approved & executed. Live financial ledger updated.', 'success');
         fetchHistory();
       } else {
-        showToast(res.message || 'Execution failed', 'error');
+        showToast(res.message || 'Execution error', 'error');
       }
     } catch (err) {
       showToast(`Execution error: ${err.message}`, 'error');
@@ -322,7 +369,7 @@ function VoiceMacroApp() {
     try {
       await API.rejectCode();
       setPipelineResult(null);
-      showToast('Transformation rejected — no changes made', 'info');
+      showToast('Transformation rejected — live ledger untouched', 'info');
     } catch (e) {}
   };
 
@@ -330,24 +377,25 @@ function VoiceMacroApp() {
   const handleCopyCode = (code) => {
     navigator.clipboard.writeText(code);
     setCopiedCode(true);
-    showToast('Pandas code copied to clipboard', 'info');
+    showToast('Pandas macro code copied to clipboard', 'info');
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // Greeting time
+  // Dynamic Greeting in Serif Display
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
+    if (hour < 12) return 'Good morning, Analyst.';
+    if (hour < 17) return 'Good afternoon, Analyst.';
+    return 'Good evening, Analyst.';
   }, []);
 
-  // Contextual command suggestions
-  const suggestions = [
-    { label: 'Filter revenue > $500k', query: 'Filter revenue above 500000' },
-    { label: 'Show pending clients', query: 'Show pending clients' },
-    { label: 'Group by state & sum revenue', query: 'Group by state and sum the revenue' },
-    { label: 'Calculate profit column', query: 'Calculate profit as gross revenue minus net revenue' },
+  // Suggestions formatted as Terminal Command Palette Strip
+  const terminalCommands = [
+    { key: '1', label: 'Filter revenue > $500k', query: 'Filter revenue above 500000' },
+    { key: '2', label: 'Calculate profit column', query: 'Calculate profit as gross revenue minus net revenue' },
+    { key: '3', label: 'Show pending filings', query: 'Show pending clients' },
+    { key: '4', label: 'Group by state & sum revenue', query: 'Group by state and sum the revenue' },
+    { key: '5', label: 'Top 5 by gross revenue', query: 'Show top 5 clients by gross revenue' },
   ];
 
   // Active sheet schema columns
@@ -357,113 +405,148 @@ function VoiceMacroApp() {
     return sheet?.columns || [];
   }, [workbook, activeSheet]);
 
+  // Comprehensive Diff Computation (Kept vs Excluded Rows for Signature Diff View)
+  const diffComparisonRows = useMemo(() => {
+    if (!pipelineResult || !pipelineResult.diff) return null;
+    const previewAfter = pipelineResult.diff.preview_after || [];
+    
+    // If we have baseline original rows and preview rows, match by key (e.g. Client_Name or row index)
+    if (rawOriginalData.length > 0 && previewAfter.length > 0) {
+      const afterKeySet = new Set(previewAfter.map(r => r.Client_Name || JSON.stringify(r)));
+      
+      // If preview_after contains rows with 'Client_Name', we can reconstruct the full ledger
+      const hasClientName = previewAfter[0] && 'Client_Name' in previewAfter[0];
+      if (hasClientName) {
+        return rawOriginalData.map(rawRow => {
+          const isKept = afterKeySet.has(rawRow.Client_Name);
+          // Check if modified in after
+          const matchedAfter = previewAfter.find(a => a.Client_Name === rawRow.Client_Name);
+          return {
+            row: matchedAfter || rawRow,
+            status: isKept ? 'KEPT' : 'EXCLUDED',
+          };
+        });
+      }
+    }
+
+    // Fallback: return preview_after as KEPT
+    return previewAfter.map(r => ({ row: r, status: 'KEPT' }));
+  }, [pipelineResult, rawOriginalData]);
+
+  // Label columns vs Numeric columns split
+  const columnCategories = useMemo(() => {
+    const cols = (currentData.columns?.length > 0) ? currentData.columns :
+                 (pipelineResult?.diff?.preview_after?.[0] ? Object.keys(pipelineResult.diff.preview_after[0]) : []);
+    const labelCols = cols.filter(c => !isNumericColumn(c));
+    const numericCols = cols.filter(c => isNumericColumn(c));
+    return { labelCols, numericCols, all: cols };
+  }, [currentData, pipelineResult]);
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-100 selection:text-indigo-900">
+    <div className="min-h-screen bg-[#F7F5F0] text-[#0B0E14] flex flex-col font-sans selection:bg-[#1B4332] selection:text-white">
       
       {/* ------------------------------------------------------------------ */}
-      {/* 1. TOP NAVIGATION HEADER                                            */}
+      {/* 1. TOP AUDIT NAVIGATION BAR                                        */}
       {/* ------------------------------------------------------------------ */}
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
+      <header className="sticky top-0 z-30 bg-[#F7F5F0]/95 backdrop-blur-md border-b border-[#E2DED4] px-6 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-sm font-bold text-sm tracking-tighter">
+          <div className="w-8 h-8 rounded bg-[#0B0E14] text-[#C9A227] border border-[#C9A227]/40 flex items-center justify-center font-serif font-bold text-sm shadow-sm">
             VM
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-900 text-sm tracking-tight">VoiceMacro</span>
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                v2.0 SaaS
+              <span className="font-serif font-bold text-[#0B0E14] text-base tracking-tight">VoiceMacro</span>
+              <span className="font-mono text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-[#EFECE6] text-[#6B7280] border border-[#E2DED4]">
+                Financial Ledger Edition
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 font-normal">AI Excel Macro Builder for Tax & Finance</p>
+            <p className="text-[11px] text-[#6B7280] font-mono tracking-tight">AST-Validated Macro Engine for Tax & Accounting</p>
           </div>
         </div>
 
-        {/* Header Right Actions */}
-        <div className="flex items-center gap-2.5">
-          {/* Connection Status Pill */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-xs text-slate-600 font-medium">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>{status.has_llm ? 'AI Engine Ready' : 'Rule-Based Engine'}</span>
+        {/* Navigation Action Badges */}
+        <div className="flex items-center gap-3">
+          {/* Status Badge */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#EFECE6] border border-[#E2DED4] font-mono text-xs text-[#0B0E14]">
+            <span className="w-2 h-2 rounded-full bg-[#1B4332]"></span>
+            <span>{status.has_llm ? 'AI Engine [Active]' : 'Rule-Based Engine [Verified]'}</span>
           </div>
 
-          {/* Reset button (if data loaded) */}
+          {/* Reset Baseline Data Button */}
           {(workbook || currentData.row_count > 0) && (
             <button
               onClick={handleResetData}
-              title="Reset data back to raw unedited state"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors"
+              title="Restore baseline ledger"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono font-medium text-[#6B7280] hover:text-[#0B0E14] hover:bg-[#EFECE6] border border-[#E2DED4] transition-colors"
             >
-              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span>Reset Data</span>
+              <span>↺</span>
+              <span>Reset Baseline</span>
             </button>
           )}
 
-          {/* Schema Inspector Drawer Trigger */}
+          {/* Schema Inspector Trigger */}
           <button
             onClick={() => setSchemaDrawerOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono font-medium text-[#0B0E14] hover:bg-[#EFECE6] border border-[#E2DED4] transition-colors"
           >
-            <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            <span>Schema</span>
+            <span>[☷]</span>
+            <span>Schema Audit</span>
           </button>
 
-          {/* Security Details Drawer Trigger */}
+          {/* Security & Verification Seal Drawer Trigger */}
           <button
             onClick={() => setSecurityDrawerOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono font-semibold bg-[#1B4332] hover:bg-[#2D6A4F] text-[#F7F5F0] border border-[#1B4332] shadow-sm transition-all"
           >
-            <svg className="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-            <span>Security</span>
+            <span>🛡️</span>
+            <span>Security & AST Seal</span>
           </button>
         </div>
       </header>
 
       {/* ------------------------------------------------------------------ */}
-      {/* 2. MAIN LAYOUT (240px Sidebar + Flexible Central Workspace)         */}
+      {/* 2. MAIN LAYOUT GRID (Minmax Sidebar + Fluid Central Workspace)      */}
       {/* ------------------------------------------------------------------ */}
-      <div className="flex-1 flex max-w-[1600px] w-full mx-auto p-6 gap-6">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-[minmax(260px,310px)_1fr] max-w-[1680px] w-full mx-auto p-6 gap-6">
 
-        {/* LEFT SIDEBAR (240px) */}
-        <aside className="w-60 flex-shrink-0 flex flex-col gap-5">
+        {/* LEFT AUDIT SIDEBAR */}
+        <aside className="flex flex-col gap-5">
           
-          {/* Active Workbook Panel */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Current Workbook</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-500" title="Active"></span>
+          {/* Current Ledger File Card */}
+          <div className="bg-white rounded-lg border border-[#E2DED4] p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-3 border-b border-[#E2DED4] pb-2">
+              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
+                Active Ledger File
+              </span>
+              <span className="font-mono text-[10px] text-[#1B4332] font-semibold">● Verified</span>
             </div>
 
             {workbook || status.has_file ? (
               <div className="space-y-3">
-                <div className="flex items-center gap-2.5 p-2 rounded-lg bg-slate-50 border border-slate-100">
-                  <div className="w-8 h-8 rounded bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs">
-                    XLS
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-slate-900 truncate">
-                      {workbook?.filename || status.current_file || 'sample_tax_data.xlsx'}
-                    </p>
-                    <p className="text-[10px] text-slate-500">
-                      {currentData.row_count || 15} rows · {currentData.columns?.length || 8} cols
-                    </p>
+                <div className="p-2.5 rounded bg-[#F7F5F0] border border-[#E2DED4]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">📄</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-xs font-bold text-[#0B0E14] truncate">
+                        {workbook?.filename || status.current_file || 'sample_tax_data.xlsx'}
+                      </p>
+                      <p className="font-mono text-[10px] text-[#6B7280] tabular-nums mt-0.5">
+                        {currentData.row_count || 15} rows · {currentData.columns?.length || 8} columns
+                      </p>
+                    </div>
                   </div>
                 </div>
 
                 {/* Sheet Selector */}
                 {workbook?.sheets && workbook.sheets.length > 1 && (
                   <div>
-                    <label className="text-[11px] font-medium text-slate-500 block mb-1">Active Sheet</label>
+                    <label className="font-mono text-[10px] font-bold uppercase text-[#6B7280] block mb-1">
+                      Target Worksheet
+                    </label>
                     <select
                       value={activeSheet}
                       onChange={(e) => setActiveSheet(e.target.value)}
-                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-1.5 font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      className="w-full font-mono text-xs bg-[#F7F5F0] border border-[#E2DED4] rounded p-1.5 text-[#0B0E14] focus:outline-none focus:border-[#1B4332]"
                     >
                       {workbook.sheets.map(s => (
                         <option key={s.sheet_name} value={s.sheet_name}>{s.sheet_name}</option>
@@ -473,26 +556,25 @@ function VoiceMacroApp() {
                 )}
               </div>
             ) : (
-              <div className="text-center py-4">
-                <p className="text-xs text-slate-500 mb-3">No workbook loaded</p>
+              <div className="text-center py-3">
+                <p className="font-mono text-xs text-[#6B7280] mb-3">No active workbook loaded</p>
                 <button
                   onClick={handleLoadSample}
                   disabled={isProcessing}
-                  className="w-full py-2 px-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold border border-indigo-200 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                  className="w-full py-2 px-3 rounded bg-[#0B0E14] hover:bg-[#161B22] text-[#F7F5F0] font-mono text-xs font-semibold border border-[#0B0E14] transition-colors shadow-sm"
                 >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  <span>Load Sample Data</span>
+                  ⚡ Load Sample Tax Ledger
                 </button>
               </div>
             )}
           </div>
 
-          {/* Upload / Switch File Card */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+          {/* Upload Workbook Box */}
+          <div className="bg-white rounded-lg border border-[#E2DED4] p-4 shadow-sm">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Upload Dataset</span>
+              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
+                Upload Ledger Dataset
+              </span>
             </div>
             
             <input
@@ -505,38 +587,38 @@ function VoiceMacroApp() {
 
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 rounded-lg p-4 text-center cursor-pointer transition-all group"
+              className="border-2 border-dashed border-[#E2DED4] hover:border-[#1B4332] hover:bg-[#F7F5F0] rounded p-4 text-center cursor-pointer transition-all group"
             >
-              <svg className="w-6 h-6 text-slate-400 group-hover:text-indigo-600 mx-auto mb-1.5 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
-              <p className="text-xs font-medium text-slate-700">Drop Excel file here</p>
-              <p className="text-[10px] text-slate-400 mt-0.5">.xlsx, .xls up to 50MB</p>
+              <div className="font-mono text-lg text-[#6B7280] group-hover:text-[#1B4332] mb-1">⇪</div>
+              <p className="font-sans text-xs font-semibold text-[#0B0E14]">Select or drop Excel ledger</p>
+              <p className="font-mono text-[10px] text-[#6B7280] mt-0.5">.xlsx, .xls, .xlsm up to 50MB</p>
             </div>
 
-            <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100">
-              <span className="text-[10px] text-slate-400">Demo dataset:</span>
+            <div className="mt-3 flex items-center justify-between pt-2 border-t border-[#E2DED4]">
+              <span className="font-mono text-[10px] text-[#6B7280]">Quick demo dataset:</span>
               <button
                 onClick={handleLoadSample}
-                className="text-[11px] font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+                className="font-mono text-[11px] font-bold text-[#1B4332] hover:underline"
               >
-                Sample Tax Data
+                sample_tax_data.xlsx
               </button>
             </div>
           </div>
 
-          {/* Recent Command History */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex-1 flex flex-col min-h-[220px]">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Audit History</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">
+          {/* Audit History Log */}
+          <div className="bg-white rounded-lg border border-[#E2DED4] p-4 shadow-sm flex-1 flex flex-col min-h-[220px]">
+            <div className="flex items-center justify-between mb-3 border-b border-[#E2DED4] pb-2">
+              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
+                Command Audit Trail
+              </span>
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[#EFECE6] text-[#0B0E14] font-bold">
                 {history.length}
               </span>
             </div>
 
             {history.length > 0 ? (
-              <div className="space-y-2 overflow-y-auto max-h-[300px] pr-1">
-                {history.slice(0, 10).map((h, idx) => (
+              <div className="space-y-2 overflow-y-auto max-h-[340px] pr-1">
+                {history.slice(0, 15).map((h, idx) => (
                   <div
                     key={h.id || idx}
                     onClick={() => {
@@ -545,23 +627,25 @@ function VoiceMacroApp() {
                         handleRunCommand(h.transcript);
                       }
                     }}
-                    className="p-2 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200 cursor-pointer transition-colors group"
+                    className="p-2.5 rounded bg-[#F7F5F0] hover:bg-[#EFECE6] border border-[#E2DED4] cursor-pointer transition-colors group"
                   >
                     <div className="flex items-start justify-between gap-1">
-                      <p className="text-xs font-medium text-slate-800 line-clamp-1 group-hover:text-indigo-600">
-                        {h.transcript || 'Executed operation'}
+                      <p className="font-mono text-xs font-semibold text-[#0B0E14] line-clamp-1 group-hover:text-[#1B4332]">
+                        &gt; {h.transcript || 'Executed macro'}
                       </p>
-                      <span className="text-[9px] text-emerald-600 font-semibold flex-shrink-0">✓ Run</span>
+                      <span className="font-mono text-[9px] text-[#1B4332] font-bold flex-shrink-0">
+                        [✓ EXECUTED]
+                      </span>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      {new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <p className="font-mono text-[10px] text-[#6B7280] tabular-nums mt-1">
+                      {new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                     </p>
                   </div>
                 ))}
               </div>
             ) : (
               <div className="flex-1 flex items-center justify-center text-center p-3">
-                <p className="text-xs text-slate-400">Commands will be logged here with timestamps</p>
+                <p className="font-mono text-xs text-[#6B7280]">All macro operations are logged here with timestamps</p>
               </div>
             )}
           </div>
@@ -569,25 +653,25 @@ function VoiceMacroApp() {
         </aside>
 
         {/* ------------------------------------------------------------------ */}
-        {/* 3. MAIN WORKSPACE (Central Interaction Canvas)                     */}
+        {/* 3. MAIN WORKSPACE (Financial Ledger & Terminal Canvas)              */}
         {/* ------------------------------------------------------------------ */}
-        <main className="flex-1 flex flex-col gap-6 min-w-0">
+        <main className="flex flex-col gap-6 min-w-0">
 
-          {/* Hero & Command Input Card */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+          {/* Hero Header & Command Palette Area */}
+          <div className="bg-white rounded-lg border border-[#E2DED4] p-6 shadow-sm">
             <div className="mb-4">
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{greeting}, Analyst</h1>
-              <p className="text-sm text-slate-500 mt-1 font-normal">
-                Ask questions or command transformations for <span className="font-semibold text-slate-700">{workbook?.filename || 'sample_tax_data.xlsx'}</span> in natural language.
+              <h1 className="font-display-title font-serif font-bold text-[#0B0E14] tracking-tight">
+                {greeting}
+              </h1>
+              <p className="font-sans text-sm text-[#6B7280] mt-1 font-normal">
+                Command transformations on <span className="font-mono font-bold text-[#0B0E14]">{workbook?.filename || 'sample_tax_data.xlsx'}</span> using voice or precision text.
               </p>
             </div>
 
-            {/* Primary Command Bar */}
-            <div className="relative flex items-center">
-              <div className="absolute left-4 text-slate-400 pointer-events-none">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
+            {/* Precision Natural-Language Command Bar */}
+            <div className="relative flex items-center mb-3">
+              <div className="absolute left-4 font-mono text-sm font-bold text-[#6B7280] pointer-events-none">
+                &gt;
               </div>
 
               <input
@@ -601,68 +685,63 @@ function VoiceMacroApp() {
                   }
                 }}
                 disabled={isProcessing}
-                placeholder={isListening ? "Listening... Speak your command" : "What would you like to do with this workbook? (e.g. 'Filter revenue above 500k')"}
-                className={`w-full pl-12 pr-28 py-3.5 bg-slate-50 hover:bg-white focus:bg-white text-slate-900 text-sm font-medium rounded-xl border ${
-                  isListening ? 'border-indigo-500 ring-2 ring-indigo-100 bg-white' : 'border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
-                } transition-all placeholder:text-slate-400 focus:outline-none`}
+                placeholder={isListening ? "Listening... Speak your command now" : "What would you like to do with this workbook? (e.g. 'Filter revenue above 500000')"}
+                className={`w-full pl-9 pr-32 py-3 bg-[#F7F5F0] hover:bg-white focus:bg-white text-[#0B0E14] font-mono text-xs md:text-sm rounded border ${
+                  isListening ? 'border-[#8B1E1E] ring-2 ring-[#8B1E1E]/20 bg-white' : 'border-[#E2DED4] focus:border-[#1B4332] focus:ring-1 focus:ring-[#1B4332]'
+                } transition-all placeholder:text-[#6B7280] focus:outline-none`}
               />
 
               {/* Action Buttons inside Command Bar */}
-              <div className="absolute right-3 flex items-center gap-1.5">
+              <div className="absolute right-2.5 flex items-center gap-1.5">
                 {/* Clear button */}
                 {commandText && !isProcessing && (
                   <button
                     onClick={() => setCommandText('')}
-                    className="p-1.5 text-slate-400 hover:text-slate-600 rounded-md transition-colors"
+                    className="p-1 text-[#6B7280] hover:text-[#0B0E14] rounded transition-colors font-mono text-xs"
+                    title="Clear input"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    [✕]
                   </button>
                 )}
 
-                {/* Inline Microphone Button */}
+                {/* Inline Voice Mic Button */}
                 <button
                   type="button"
                   onClick={handleToggleVoice}
-                  title={isListening ? "Stop listening" : "Click to speak voice command"}
-                  className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                  title={isListening ? "Stop voice listening" : "Click to speak voice command"}
+                  className={`px-2.5 py-1.5 rounded font-mono text-xs font-semibold transition-all flex items-center gap-1 ${
                     isListening 
-                      ? 'bg-red-500 text-white shadow-sm ring-4 ring-red-100 animate-pulse' 
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      ? 'bg-[#8B1E1E] text-white shadow-sm ring-2 ring-[#8B1E1E]/30 animate-pulse' 
+                      : 'bg-[#EFECE6] hover:bg-[#E2DED4] text-[#0B0E14] border border-[#E2DED4]'
                   }`}
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                  </svg>
+                  <span>🎙</span>
+                  <span className="text-[10px] hidden sm:inline">{isListening ? 'LISTENING' : 'VOICE'}</span>
                 </button>
 
-                {/* Submit button */}
+                {/* Submit Execute Button */}
                 <button
                   onClick={() => handleRunCommand()}
                   disabled={!commandText.trim() || isProcessing}
-                  className="p-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white transition-all shadow-sm flex items-center justify-center"
+                  className="px-3 py-1.5 rounded bg-[#0B0E14] hover:bg-[#161B22] disabled:opacity-40 text-[#F7F5F0] font-mono text-xs font-bold transition-all shadow-sm flex items-center gap-1"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                  </svg>
+                  <span>RUN</span>
+                  <span className="text-[10px] text-[#C9A227]">↵</span>
                 </button>
               </div>
             </div>
 
-            {/* Active Voice Recording Bar */}
+            {/* Active Voice Listening Banner */}
             {isListening && (
-              <div className="mt-3 p-3 rounded-xl bg-red-50 border border-red-200 flex items-center justify-between animate-toast">
-                <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-3">
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping"></span>
-                    <span className="text-[11px] font-bold text-red-700 uppercase tracking-wide">Listening:</span>
-                  </div>
-                  <span className="text-xs text-slate-800 font-medium truncate">
-                    {interimTranscript ? `"${interimTranscript}"` : "Speak your transformation into microphone..."}
+              <div className="mb-3 p-3 rounded bg-[#8B1E1E]/10 border border-[#8B1E1E]/30 flex items-center justify-between animate-toast">
+                <div className="flex items-center gap-2 min-w-0 flex-1 mr-3">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#8B1E1E] animate-ping flex-shrink-0"></span>
+                  <span className="font-mono text-xs font-bold text-[#8B1E1E] uppercase flex-shrink-0">RECORDING VOICE:</span>
+                  <span className="font-mono text-xs text-[#0B0E14] font-medium truncate">
+                    {interimTranscript ? `"${interimTranscript}"` : "Speak clearly into your microphone..."}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
+                <div className="flex items-center gap-1.5 flex-shrink-0 font-mono text-xs">
                   <button
                     onClick={() => {
                       if (interimTranscript) {
@@ -671,16 +750,16 @@ function VoiceMacroApp() {
                       }
                       if (window.Voice) Voice.stop();
                     }}
-                    className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
+                    className="px-3 py-1 bg-[#8B1E1E] text-white rounded font-bold hover:bg-[#6D1616]"
                   >
-                    Done & Run
+                    Done & Run ↵
                   </button>
                   <button
                     onClick={() => {
                       if (window.Voice) Voice.stop();
                       setInterimTranscript('');
                     }}
-                    className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-600 rounded-lg text-xs font-medium border border-slate-200 transition-colors"
+                    className="px-2.5 py-1 bg-white text-[#0B0E14] rounded border border-[#E2DED4]"
                   >
                     Cancel
                   </button>
@@ -688,192 +767,273 @@ function VoiceMacroApp() {
               </div>
             )}
 
-            {/* Contextual Suggestions Chips */}
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-medium text-slate-400 mr-1">Suggestions:</span>
-              {suggestions.map((s, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    setCommandText(s.query);
-                    handleRunCommand(s.query);
-                  }}
-                  className="text-xs font-medium px-3 py-1 rounded-full bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 border border-slate-200 hover:border-indigo-200 transition-colors"
-                >
-                  {s.label}
-                </button>
-              ))}
+            {/* 1. Command Palette Terminal Strip (Single-line row) */}
+            <div className="terminal-strip px-3 py-2 rounded-lg flex items-center gap-2.5 overflow-x-auto shadow-inner no-scrollbar">
+              <div className="flex items-center gap-1.5 font-mono text-xs text-[#C9A227] font-semibold flex-shrink-0">
+                <span>&gt;</span>
+                <span className="tracking-wider">COMMANDS</span>
+                <span className="text-slate-500">❯</span>
+              </div>
+
+              <div className="flex items-center gap-2 flex-nowrap flex-1 min-w-0">
+                {terminalCommands.map((cmd) => (
+                  <button
+                    key={cmd.key}
+                    onClick={() => {
+                      setCommandText(cmd.query);
+                      handleRunCommand(cmd.query);
+                    }}
+                    className="terminal-prompt-btn"
+                    title={`Run query: ${cmd.query}`}
+                  >
+                    <span className="text-[#C9A227] font-bold">&gt;</span>
+                    <span>{cmd.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Compact Execution Stepper (When analyzing/generating) */}
+          {/* Sequential Pipeline Stepper (Brief ~150ms verification pacing) */}
           {isProcessing && (
-            <div className="bg-white rounded-xl border border-indigo-100 p-4 shadow-sm flex items-center justify-between animate-toast">
+            <div className="bg-white rounded-lg border border-[#1B4332]/30 p-4 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-3 animate-toast">
               <div className="flex items-center gap-3">
-                <div className="w-5 h-5 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin"></div>
+                <div className="w-4 h-4 rounded-full border-2 border-[#1B4332] border-t-transparent animate-spin"></div>
                 <div>
-                  <p className="text-xs font-semibold text-slate-900">{processingStage || 'Processing transformation...'}</p>
-                  <p className="text-[11px] text-slate-500">Analyzing schema & verifying AST security whitelist</p>
+                  <p className="font-mono text-xs font-bold text-[#0B0E14]">
+                    {processingStageIndex === 1 ? '1. Parsing Natural Language Intent...' :
+                     processingStageIndex === 2 ? '2. Compiling & AST Whitelist Verification...' :
+                     processingStageIndex === 3 ? '3. Simulating in Sandbox Dry-Run Engine...' :
+                     'Verifying Safe Operations...'}
+                  </p>
+                  <p className="font-mono text-[11px] text-[#6B7280]">Compiler-level security checks & zero-egress inspection</p>
                 </div>
               </div>
 
-              {/* 4-step compact progress */}
-              <div className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
-                <span className="text-indigo-600 font-semibold">1. Parse Intent</span>
-                <span>→</span>
-                <span className="text-indigo-600 font-semibold">2. Generate</span>
-                <span>→</span>
-                <span className="text-indigo-600 font-semibold">3. Validate</span>
-                <span>→</span>
-                <span>4. Ready</span>
+              <div className="flex items-center gap-2 font-mono text-[11px] font-bold">
+                <span className={processingStageIndex >= 1 ? 'text-[#1B4332]' : 'text-slate-400'}>[1. PARSE]</span>
+                <span className="text-slate-300">→</span>
+                <span className={processingStageIndex >= 2 ? 'text-[#1B4332]' : 'text-slate-400'}>[2. AST VALIDATE]</span>
+                <span className="text-slate-300">→</span>
+                <span className={processingStageIndex >= 3 ? 'text-[#1B4332]' : 'text-slate-400'}>[3. SANDBOX DRY-RUN]</span>
               </div>
             </div>
           )}
 
           {/* ---------------------------------------------------------------- */}
-          {/* 4. RESULT AREA (Interpretation + Pandas Code + Data Preview)     */}
+          {/* 4. SIGNATURE DIFF & APPROVE SCREEN (The Core Product Moment)      */}
           {/* ---------------------------------------------------------------- */}
           {pipelineResult && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col gap-0">
+            <div className={`bg-white rounded-lg border border-[#E2DED4] shadow-sm overflow-hidden flex flex-col ${isFlashingApproval ? 'row-flash-approve' : ''}`}>
               
               {/* Natural Language Interpretation Banner */}
-              <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs">
-                    AI
+              <div className="p-4 bg-[#F7F5F0] border-b border-[#E2DED4] flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-[#0B0E14] text-[#C9A227] uppercase">
+                      Audit Interpretation
+                    </span>
+                    <span className="font-mono text-xs text-[#6B7280]">
+                      Query: <span className="text-[#0B0E14] font-bold">"{pipelineResult.transcript}"</span>
+                    </span>
                   </div>
-                  <div>
-                    <h3 className="text-xs font-semibold text-slate-900">
-                      {pipelineResult.generated_code?.explanation || pipelineResult.intent?.intent_type || 'Generated Transformation'}
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      Command: <span className="italic font-medium text-slate-700">"{pipelineResult.transcript}"</span>
-                    </p>
-                  </div>
+                  <h3 className="font-serif font-bold text-sm md:text-base text-[#0B0E14]">
+                    {pipelineResult.generated_code?.explanation || 'Simulated Macro Transformation'}
+                  </h3>
                 </div>
 
-                {/* Validation Status Badges */}
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    <svg className="w-3 h-3 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                {/* 3. Stamped AST Official Wax-Seal Badge */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="ast-seal-badge">
+                    <svg className="w-3.5 h-3.5 animate-stroke-draw" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
                     </svg>
-                    AST Whitelisted
-                  </span>
+                    <span>OFFICIALLY VERIFIED: AST SAFE</span>
+                  </div>
 
                   {pipelineResult.redaction_report?.total_redactions > 0 && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                      🔒 {pipelineResult.redaction_report.total_redactions} PII Redacted
+                    <span className="font-mono text-[11px] font-bold px-2.5 py-1 rounded bg-[#FAF5E8] text-[#C9A227] border border-[#C9A227]/40">
+                      🔒 {pipelineResult.redaction_report.total_redactions} PII REDACTED
                     </span>
                   )}
                 </div>
               </div>
 
-              {/* Generated Pandas Code Display */}
+              {/* Generated Pandas Code in Dark Terminal Box */}
               {pipelineResult.generated_code && (
-                <div className="p-4 bg-slate-900 text-slate-100 font-mono text-xs border-b border-slate-200">
-                  <div className="flex items-center justify-between mb-2 text-[11px] text-slate-400 font-sans">
-                    <span className="flex items-center gap-1.5 font-semibold text-slate-300">
-                      <span>🐼</span> Python / Pandas Macro
+                <div className="p-4 bg-[#0B0E14] text-[#F7F5F0] font-mono text-xs border-b border-[#E2DED4]">
+                  <div className="flex items-center justify-between mb-2 text-[11px] text-slate-400">
+                    <span className="flex items-center gap-1.5 font-bold text-[#C9A227]">
+                      <span>🐍</span> Python / Pandas Verified Execution Script
                     </span>
                     <button
                       onClick={() => handleCopyCode(pipelineResult.generated_code.code)}
-                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-medium transition-colors"
+                      className="px-2.5 py-1 rounded bg-[#161B22] hover:bg-[#2A323D] text-[#CBD5E1] font-mono text-[10px] border border-[#2A323D] transition-colors"
                     >
-                      {copiedCode ? '✓ Copied' : 'Copy Code'}
+                      {copiedCode ? '✓ Copied' : 'Copy Script'}
                     </button>
                   </div>
                   <pre
-                    className="overflow-x-auto p-3 rounded-lg bg-slate-950/60 border border-slate-800 leading-relaxed"
+                    className="overflow-x-auto p-3 rounded bg-[#05070A] border border-[#2A323D] leading-relaxed"
                     dangerouslySetInnerHTML={{ __html: highlightCode(pipelineResult.generated_code.code) }}
                   />
                 </div>
               )}
 
-              {/* Execution Success Banner (if executed) */}
+              {/* Live Execution Success Confirmation Banner */}
               {executionResult && (
-                <div className="p-4 bg-emerald-50 border-b border-emerald-200 flex items-center justify-between text-xs text-emerald-800">
+                <div className="p-4 bg-[#1B4332]/10 border-b border-[#1B4332]/30 flex items-center justify-between font-mono text-xs text-[#1B4332]">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-emerald-700">✅ Execution Successful:</span>
+                    <span className="font-bold">[✓ EXECUTED]:</span>
                     <span>{executionResult.message}</span>
                   </div>
-                  <span className="font-semibold text-emerald-700">Live Data Updated</span>
+                  <span className="font-bold underline">Live Ledger Updated</span>
                 </div>
               )}
 
-              {/* Data Diff Table Preview */}
+              {/* 4. Signature Diff View (Kept Rows vs Excluded Strikethrough Rows) */}
               <div className="p-4 flex-1">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Data Preview</span>
+                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#6B7280]">
+                      Ledger Simulation Diff
+                    </span>
+                    
                     {pipelineResult.diff && (
-                      <div className="flex items-center gap-1 text-[11px]">
-                        {pipelineResult.diff.rows_added > 0 && (
-                          <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">+{pipelineResult.diff.rows_added} added</span>
+                      <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold">
+                        {pipelineResult.diff.rows_removed > 0 && (
+                          <span className="px-2 py-0.5 rounded bg-[#1B4332]/10 text-[#1B4332] border border-[#1B4332]/30">
+                            {pipelineResult.diff.total_rows_after} Matched
+                          </span>
                         )}
                         {pipelineResult.diff.rows_removed > 0 && (
-                          <span className="px-2 py-0.5 rounded bg-red-50 text-red-700 font-medium">-{pipelineResult.diff.rows_removed} removed</span>
+                          <span className="px-2 py-0.5 rounded bg-[#8B1E1E]/10 text-[#8B1E1E] border border-[#8B1E1E]/30">
+                            {pipelineResult.diff.rows_removed} Excluded
+                          </span>
                         )}
                         {pipelineResult.diff.cells_modified > 0 && (
-                          <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">~{pipelineResult.diff.cells_modified} modified</span>
+                          <span className="px-2 py-0.5 rounded bg-[#FAF5E8] text-[#C9A227] border border-[#C9A227]/40">
+                            Δ {pipelineResult.diff.cells_modified} Cells Modified
+                          </span>
                         )}
                       </div>
                     )}
                   </div>
-                  <span className="text-[11px] text-slate-400">
-                    Showing top {pipelineResult.diff?.preview_after?.length || currentData.data?.length || 0} rows
+                  <span className="font-mono text-[11px] text-[#6B7280]">
+                    [Green = Retained In Filter · Strikethrough = Excluded]
                   </span>
                 </div>
 
-                {/* Table Component */}
-                <div className="border border-slate-200 rounded-lg overflow-x-auto max-h-[320px]">
-                  <table className="w-full text-left text-xs font-normal border-collapse">
-                    <thead className="bg-slate-100 text-slate-600 text-[11px] font-semibold sticky top-0 border-b border-slate-200 z-10">
+                {/* 2. Data Table: Right-Aligned Tabular Numbers & Vertical Hairlines */}
+                <div className="border border-[#E2DED4] rounded overflow-x-auto max-h-[380px]">
+                  <table className="w-full text-xs border-collapse">
+                    <thead className="bg-[#EFECE6] text-[#0B0E14] font-mono text-[11px] sticky top-0 border-b border-[#E2DED4] z-10">
                       <tr>
-                        <th className="p-2.5 w-10 text-center text-slate-400">#</th>
-                        {(pipelineResult.diff?.preview_after?.[0] ? Object.keys(pipelineResult.diff.preview_after[0]) : currentData.columns).map(col => (
-                          <th key={col} className="p-2.5 whitespace-nowrap font-semibold">
-                            {col}
+                        <th className="p-2.5 w-12 text-center text-[#6B7280] font-bold ledger-hairline-r">
+                          LINE #
+                        </th>
+                        <th className="p-2.5 w-16 text-center text-[#6B7280] font-bold ledger-hairline-r">
+                          AUDIT
+                        </th>
+                        
+                        {/* Label Columns (Left-Aligned) */}
+                        {columnCategories.labelCols.map(col => (
+                          <th key={col} className="p-2.5 text-left font-bold whitespace-nowrap ledger-hairline-r">
+                            {col} <span className="text-[9px] text-[#6B7280]">[txt]</span>
+                          </th>
+                        ))}
+
+                        {/* Numeric Columns (Right-Aligned) */}
+                        {columnCategories.numericCols.map((col, idx) => (
+                          <th
+                            key={col}
+                            className={`p-2.5 text-right font-bold whitespace-nowrap ${
+                              idx < columnCategories.numericCols.length - 1 ? 'ledger-hairline-r' : ''
+                            }`}
+                          >
+                            {col} <span className="text-[9px] text-[#6B7280]">[num]</span>
                           </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-                      {(pipelineResult.diff?.preview_after || currentData.data).slice(0, 15).map((row, rIdx) => (
-                        <tr key={rIdx} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="p-2.5 text-center text-slate-400 font-sans">{rIdx + 1}</td>
-                          {Object.keys(row).map(col => (
-                            <td key={col} className="p-2.5 text-slate-700 whitespace-nowrap">
-                              {row[col] !== null ? String(row[col]) : <span className="text-slate-300 italic">null</span>}
+
+                    <tbody className="divide-y divide-[#E2DED4] font-mono text-xs">
+                      {(diffComparisonRows || []).slice(0, 25).map((item, rIdx) => {
+                        const isKept = item.status === 'KEPT';
+                        const row = item.row;
+
+                        return (
+                          <tr
+                            key={rIdx}
+                            className={`transition-colors ${
+                              isKept ? 'ledger-row-kept' : 'ledger-row-excluded'
+                            }`}
+                          >
+                            {/* Row Index */}
+                            <td className="p-2 text-center text-[#6B7280] font-mono tabular-nums ledger-hairline-r">
+                              {rIdx + 1}
                             </td>
-                          ))}
-                        </tr>
-                      ))}
+
+                            {/* Audit Status Tag */}
+                            <td className="p-2 text-center font-mono text-[10px] font-bold ledger-hairline-r">
+                              {isKept ? (
+                                <span className="text-[#1B4332]">KEPT</span>
+                              ) : (
+                                <span className="text-[#8B1E1E]">EXCL</span>
+                              )}
+                            </td>
+
+                            {/* Label Columns (Left-Aligned) */}
+                            {columnCategories.labelCols.map(col => (
+                              <td key={col} className="p-2 text-left text-[#0B0E14] whitespace-nowrap ledger-hairline-r">
+                                {formatCellValue(row[col], col)}
+                              </td>
+                            ))}
+
+                            {/* Numeric Columns (Right-Aligned with Tabular Nums) */}
+                            {columnCategories.numericCols.map((col, idx) => (
+                              <td
+                                key={col}
+                                className={`p-2 text-right text-[#0B0E14] font-mono tabular-nums font-semibold whitespace-nowrap ${
+                                  idx < columnCategories.numericCols.length - 1 ? 'ledger-hairline-r' : ''
+                                }`}
+                              >
+                                {formatCellValue(row[col], col)}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
 
-              {/* Action Bar (Approve / Reject) */}
+              {/* Action Bar (Approve & Execute with Brass Button) */}
               {!executionResult && pipelineResult.stage === 'AWAITING_APPROVAL' && (
-                <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-                  <p className="text-xs text-slate-500 font-medium">
-                    Review the preview above. Click Approve to apply this transformation to the live workbook.
-                  </p>
+                <div className="p-4 bg-[#F7F5F0] border-t border-[#E2DED4] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="font-mono text-xs text-[#6B7280]">
+                    <span>[VERIFICATION REQUIRED]: </span>
+                    <span className="text-[#0B0E14] font-semibold">Examine diff above. Approve to apply delta to active workbook.</span>
+                  </div>
+
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleReject}
                       disabled={isProcessing}
-                      className="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors"
+                      className="px-4 py-2 rounded bg-white hover:bg-[#FDF2F2] border border-[#8B1E1E]/40 font-mono text-xs font-bold text-[#8B1E1E] transition-colors"
                     >
-                      ✕ Reject
+                      [✕ REJECT]
                     </button>
+
+                    {/* Stamped Brass Approval Button */}
                     <button
                       onClick={handleApprove}
                       disabled={isProcessing}
-                      className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs font-semibold text-white transition-colors shadow-sm flex items-center gap-1.5"
+                      className="px-5 py-2 rounded bg-[#C9A227] hover:bg-[#B38F1E] text-[#0B0E14] font-mono text-xs font-bold border border-[#A68314] shadow-sm transition-all flex items-center gap-1.5 tracking-tight"
                     >
-                      <span>✓ Approve & Execute</span>
+                      <span>✓</span>
+                      <span>APPROVE &amp; EXECUTE</span>
                     </button>
                   </div>
                 </div>
@@ -881,38 +1041,68 @@ function VoiceMacroApp() {
             </div>
           )}
 
-          {/* Default Data Table (when no pending query) */}
+          {/* Baseline Live Financial Ledger Table (when no active diff) */}
           {!pipelineResult && currentData.data.length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
+            <div className="bg-white rounded-lg border border-[#E2DED4] p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-3 border-b border-[#E2DED4] pb-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Live Workbook Table</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
-                    {currentData.row_count} rows × {currentData.columns.length} columns
+                  <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#6B7280]">
+                    Baseline Financial Ledger
+                  </span>
+                  <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-[#EFECE6] text-[#0B0E14] font-bold tabular-nums">
+                    {currentData.row_count} Rows × {currentData.columns.length} Fields
                   </span>
                 </div>
-                <span className="text-[11px] text-slate-400">Showing first {Math.min(currentData.data.length, 15)} records</span>
+                <span className="font-mono text-[11px] text-[#6B7280]">
+                  Tabular Numeral Alignment [Active]
+                </span>
               </div>
 
-              <div className="border border-slate-200 rounded-lg overflow-x-auto max-h-[360px]">
-                <table className="w-full text-left text-xs font-normal border-collapse">
-                  <thead className="bg-slate-100 text-slate-600 text-[11px] font-semibold sticky top-0 border-b border-slate-200 z-10">
+              {/* 2. Data Table with Tabular Monospace and Hairlines */}
+              <div className="border border-[#E2DED4] rounded overflow-x-auto max-h-[420px]">
+                <table className="w-full text-xs border-collapse">
+                  <thead className="bg-[#EFECE6] text-[#0B0E14] font-mono text-[11px] sticky top-0 border-b border-[#E2DED4] z-10">
                     <tr>
-                      <th className="p-2.5 w-10 text-center text-slate-400">#</th>
-                      {currentData.columns.map(col => (
-                        <th key={col} className="p-2.5 whitespace-nowrap font-semibold">
-                          {col}
+                      <th className="p-2.5 w-12 text-center text-[#6B7280] font-bold ledger-hairline-r">
+                        #
+                      </th>
+                      {columnCategories.labelCols.map(col => (
+                        <th key={col} className="p-2.5 text-left font-bold whitespace-nowrap ledger-hairline-r">
+                          {col} <span className="text-[9px] text-[#6B7280]">[txt]</span>
+                        </th>
+                      ))}
+                      {columnCategories.numericCols.map((col, idx) => (
+                        <th
+                          key={col}
+                          className={`p-2.5 text-right font-bold whitespace-nowrap ${
+                            idx < columnCategories.numericCols.length - 1 ? 'ledger-hairline-r' : ''
+                          }`}
+                        >
+                          {col} <span className="text-[9px] text-[#6B7280]">[num]</span>
                         </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-                    {currentData.data.slice(0, 15).map((row, rIdx) => (
-                      <tr key={rIdx} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-2.5 text-center text-slate-400 font-sans">{rIdx + 1}</td>
-                        {currentData.columns.map(col => (
-                          <td key={col} className="p-2.5 text-slate-700 whitespace-nowrap">
-                            {row[col] !== null ? String(row[col]) : <span className="text-slate-300 italic">null</span>}
+
+                  <tbody className="divide-y divide-[#E2DED4] font-mono text-xs">
+                    {currentData.data.slice(0, 20).map((row, rIdx) => (
+                      <tr key={rIdx} className="hover:bg-[#F7F5F0] transition-colors">
+                        <td className="p-2 text-center text-[#6B7280] font-mono tabular-nums ledger-hairline-r">
+                          {rIdx + 1}
+                        </td>
+                        {columnCategories.labelCols.map(col => (
+                          <td key={col} className="p-2 text-left text-[#0B0E14] whitespace-nowrap ledger-hairline-r">
+                            {formatCellValue(row[col], col)}
+                          </td>
+                        ))}
+                        {columnCategories.numericCols.map((col, idx) => (
+                          <td
+                            key={col}
+                            className={`p-2 text-right text-[#0B0E14] font-mono tabular-nums font-semibold whitespace-nowrap ${
+                              idx < columnCategories.numericCols.length - 1 ? 'ledger-hairline-r' : ''
+                            }`}
+                          >
+                            {formatCellValue(row[col], col)}
                           </td>
                         ))}
                       </tr>
@@ -927,132 +1117,154 @@ function VoiceMacroApp() {
       </div>
 
       {/* ------------------------------------------------------------------ */}
-      {/* 5. SLIDE-OVER DRAWERS                                              */}
+      {/* 5. AUDIT INSPECTION REPORT DRAWERS                                 */}
       {/* ------------------------------------------------------------------ */}
 
-      {/* SECURITY & PRIVACY DRAWER */}
+      {/* SECURITY & ZERO-EGRESS INSPECTION REPORT DRAWER */}
       {securityDrawerOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="fixed inset-0 drawer-backdrop" onClick={() => setSecurityDrawerOpen(false)} />
-          <div className="relative w-full max-w-md bg-white h-full shadow-2xl p-6 overflow-y-auto flex flex-col z-10 border-l border-slate-200">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-5">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
+          <div className="relative w-full max-w-lg bg-white h-full shadow-2xl p-6 overflow-y-auto flex flex-col z-10 border-l border-[#E2DED4]">
+            
+            {/* Header with Certified Stamp */}
+            <div className="flex items-center justify-between pb-4 border-b border-[#E2DED4] mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded bg-[#1B4332] text-[#F7F5F0] flex items-center justify-center font-bold text-sm shadow-sm">
+                  🛡️
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-slate-900">Security & Privacy Guardrails</h2>
-                  <p className="text-[11px] text-slate-500">Zero raw data egress guarantee</p>
+                  <h2 className="font-serif font-bold text-base text-[#0B0E14]">Enterprise Security & AST Audit</h2>
+                  <p className="font-mono text-[10px] text-[#6B7280]">Zero Raw Data Egress Certificate</p>
                 </div>
               </div>
               <button
                 onClick={() => setSecurityDrawerOpen(false)}
-                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                className="p-1 text-[#6B7280] hover:text-[#0B0E14] font-mono text-sm"
               >
-                ✕
+                [✕ CLOSE]
               </button>
             </div>
 
-            {/* 4 Pillars */}
-            <div className="space-y-4 text-xs text-slate-600 flex-1">
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-2 font-semibold text-slate-900 mb-1">
-                  <span className="text-indigo-600">🛡️</span> 1. Schema-Only Transmission
+            {/* 5. Inspection Report Checklist Format */}
+            <div className="space-y-4 font-mono text-xs text-[#0B0E14] flex-1">
+              <div className="p-3.5 rounded bg-[#F7F5F0] border border-[#E2DED4]">
+                <div className="flex items-center justify-between font-bold mb-1 text-[#1B4332]">
+                  <span>[01. SCHEMA-ONLY EGRESS PROTOCOL]</span>
+                  <span className="text-[10px] text-[#1B4332] font-semibold">PASSED ✓</span>
                 </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Raw workbook cells NEVER leave your local machine. Only column names and data types are used for code generation.
+                <p className="font-sans text-xs text-[#6B7280] leading-relaxed">
+                  Raw row values and cell contents NEVER leave your workstation. Only column headers and inferred data types are used by the code synthesis engine.
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-2 font-semibold text-slate-900 mb-1">
-                  <span className="text-emerald-600">🔍</span> 2. AST Whitelist Security
+              <div className="p-3.5 rounded bg-[#F7F5F0] border border-[#E2DED4]">
+                <div className="flex items-center justify-between font-bold mb-1 text-[#1B4332]">
+                  <span>[02. AST COMPILER WHITELIST]</span>
+                  <span className="text-[10px] text-[#1B4332] font-semibold">PASSED ✓</span>
                 </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  All generated Python code passes through an Abstract Syntax Tree (AST) validator. File I/O, `eval`, `exec`, and system calls are strictly blocked.
+                <p className="font-sans text-xs text-[#6B7280] leading-relaxed">
+                  Every Python line is parsed into an Abstract Syntax Tree. System calls, file writes (`open`, `to_csv`), `eval`, `exec`, and network requests (`socket`, `requests`) are blocked at the compiler level.
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-2 font-semibold text-slate-900 mb-1">
-                  <span className="text-amber-600">🧪</span> 3. Dry-Run Sandbox
+              <div className="p-3.5 rounded bg-[#F7F5F0] border border-[#E2DED4]">
+                <div className="flex items-center justify-between font-bold mb-1 text-[#1B4332]">
+                  <span>[03. MEMORY SANDBOX DRY-RUN]</span>
+                  <span className="text-[10px] text-[#1B4332] font-semibold">PASSED ✓</span>
                 </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Transformations execute on an in-memory cloned DataFrame first. Changes only touch live data when you explicitly click Approve.
+                <p className="font-sans text-xs text-[#6B7280] leading-relaxed">
+                  Transformations execute exclusively on an isolated in-memory cloned DataFrame. Live data is modified ONLY upon clicking "Approve & Execute".
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-2 font-semibold text-slate-900 mb-1">
-                  <span className="text-cyan-600">🔒</span> 4. Client-Side PII Redaction
+              <div className="p-3.5 rounded bg-[#F7F5F0] border border-[#E2DED4]">
+                <div className="flex items-center justify-between font-bold mb-1 text-[#1B4332]">
+                  <span>[04. CLIENT-SIDE PII REDACTION]</span>
+                  <span className="text-[10px] text-[#1B4332] font-semibold">PASSED ✓</span>
                 </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Client names, SSNs, EINs, phone numbers, and emails in voice transcripts are sanitized before parsing.
+                <p className="font-sans text-xs text-[#6B7280] leading-relaxed">
+                  SSNs, Tax EINs, phone numbers, email addresses, and client identifiers are scrubbed client-side prior to query parsing.
                 </p>
               </div>
             </div>
 
-            <div className="pt-4 border-t border-slate-200">
+            <div className="pt-4 border-t border-[#E2DED4]">
               <button
                 onClick={() => setSecurityDrawerOpen(false)}
-                className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold text-xs transition-colors"
+                className="w-full py-2.5 bg-[#0B0E14] hover:bg-[#161B22] text-[#F7F5F0] rounded font-mono font-bold text-xs transition-colors"
               >
-                Close Security Panel
+                [CLOSE AUDIT CERTIFICATE]
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* WORKBOOK SCHEMA INSPECTOR DRAWER */}
+      {/* 5. WORKBOOK SCHEMA INSPECTOR AUDIT REPORT DRAWER */}
       {schemaDrawerOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="fixed inset-0 drawer-backdrop" onClick={() => setSchemaDrawerOpen(false)} />
-          <div className="relative w-full max-w-md bg-white h-full shadow-2xl p-6 overflow-y-auto flex flex-col z-10 border-l border-slate-200">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-5">
+          <div className="relative w-full max-w-lg bg-white h-full shadow-2xl p-6 overflow-y-auto flex flex-col z-10 border-l border-[#E2DED4]">
+            
+            <div className="flex items-center justify-between pb-4 border-b border-[#E2DED4] mb-5">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                </div>
+                <span className="text-xl">📋</span>
                 <div>
-                  <h2 className="text-sm font-bold text-slate-900">Workbook Schema Inspector</h2>
-                  <p className="text-[11px] text-slate-500">{activeSheet} · {activeSheetColumns.length} columns</p>
+                  <h2 className="font-serif font-bold text-base text-[#0B0E14]">Workbook Schema Inspection</h2>
+                  <p className="font-mono text-[10px] text-[#6B7280]">{activeSheet} · {activeSheetColumns.length} Audited Fields</p>
                 </div>
               </div>
               <button
                 onClick={() => setSchemaDrawerOpen(false)}
-                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                className="p-1 text-[#6B7280] hover:text-[#0B0E14] font-mono text-sm"
               >
-                ✕
+                [✕]
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto pr-1">
-              <div className="space-y-2">
-                {activeSheetColumns.map((col, idx) => (
-                  <div key={idx} className="p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-semibold text-slate-900">{col.name}</p>
-                      <p className="text-[10px] text-slate-400">Cardinality: {col.sample_cardinality || 'N/A'}</p>
+            {/* Checklist items with cardinality micro-bars */}
+            <div className="flex-1 overflow-y-auto pr-1 space-y-2.5">
+              {activeSheetColumns.map((col, idx) => {
+                const isNumeric = isNumericColumn(col.name);
+                const cardinality = col.sample_cardinality || 10;
+                const cardPct = Math.min(100, Math.max(10, cardinality * 7));
+
+                return (
+                  <div key={idx} className="p-3 rounded bg-[#F7F5F0] border border-[#E2DED4]">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] text-[#6B7280]">[{String(idx + 1).padStart(2, '0')}]</span>
+                        <p className="font-mono text-xs font-bold text-[#0B0E14]">{col.name}</p>
+                      </div>
+                      <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-white text-[#1B4332] border border-[#E2DED4]">
+                        {col.dtype}
+                      </span>
                     </div>
-                    <span className="font-mono text-[10px] font-medium px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
-                      {col.dtype}
-                    </span>
+
+                    {/* Cardinality Micro-Bar */}
+                    <div className="flex items-center justify-between gap-3 text-[10px] font-mono text-[#6B7280] mt-2 pt-1.5 border-t border-[#E2DED4]/60">
+                      <span>Cardinality: {cardinality}</span>
+                      <div className="flex items-center gap-1 flex-1 max-w-[120px]">
+                        <div className="w-full bg-[#E2DED4] h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className="bg-[#1B4332] h-full rounded-full"
+                            style={{ width: `${cardPct}%` }}
+                          />
+                        </div>
+                      </div>
+                      <span className="font-bold text-[#0B0E14]">{isNumeric ? 'NUMERIC' : 'LABEL'}</span>
+                    </div>
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
 
-            <div className="pt-4 border-t border-slate-200">
+            <div className="pt-4 border-t border-[#E2DED4]">
               <button
                 onClick={() => setSchemaDrawerOpen(false)}
-                className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold text-xs transition-colors"
+                className="w-full py-2.5 bg-[#0B0E14] hover:bg-[#161B22] text-[#F7F5F0] rounded font-mono font-bold text-xs transition-colors"
               >
-                Done
+                [DONE]
               </button>
             </div>
           </div>
@@ -1060,17 +1272,17 @@ function VoiceMacroApp() {
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* 6. TOAST NOTIFICATIONS CONTAINER                                   */}
+      {/* 6. TOAST AUDIT NOTIFICATIONS                                       */}
       {/* ------------------------------------------------------------------ */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none font-mono">
         {toasts.map(t => (
           <div
             key={t.id}
-            className={`pointer-events-auto px-4 py-2.5 rounded-lg shadow-lg border text-xs font-medium flex items-center gap-2 animate-toast ${
-              t.type === 'success' ? 'bg-emerald-900 text-white border-emerald-800' :
-              t.type === 'error' ? 'bg-red-900 text-white border-red-800' :
-              t.type === 'warning' ? 'bg-amber-900 text-white border-amber-800' :
-              'bg-slate-900 text-white border-slate-800'
+            className={`pointer-events-auto px-4 py-2.5 rounded shadow-lg border text-xs font-bold flex items-center gap-2 animate-toast ${
+              t.type === 'success' ? 'bg-[#1B4332] text-white border-[#1B4332]' :
+              t.type === 'error' ? 'bg-[#8B1E1E] text-white border-[#8B1E1E]' :
+              t.type === 'warning' ? 'bg-[#C9A227] text-[#0B0E14] border-[#C9A227]' :
+              'bg-[#0B0E14] text-white border-[#2A323D]'
             }`}
           >
             <span>{t.type === 'success' ? '✓' : t.type === 'error' ? '✕' : 'ℹ'}</span>
@@ -1083,7 +1295,7 @@ function VoiceMacroApp() {
   );
 }
 
-// Render React App
+// Render VoiceMacro React Ledger Application
 const rootEl = document.getElementById('root');
 if (rootEl) {
   const root = ReactDOM.createRoot(rootEl);

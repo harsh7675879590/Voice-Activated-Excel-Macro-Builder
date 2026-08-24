@@ -1,35 +1,29 @@
 /* ============================================================================
-   VOICEMACRO — Core SaaS Design System
-   Linear / Stripe / Raycast inspired light productivity theme
+   VOICEMACRO — Financial Ledger & Terminal Design System
+   Precision financial audit aesthetic with serif display & tabular monospace
    ============================================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
 :root {
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --ink: #0B0E14;
+  --ink-surface: #161B22;
+  --ink-border: #2A323D;
+  --paper: #F7F5F0;
+  --paper-surface: #FFFFFF;
+  --paper-subtle: #EFECE6;
+  --paper-border: #E2DED4;
+  --ledger-green: #1B4332;
+  --ledger-green-light: #2D6A4F;
+  --ledger-green-subtle: #E8F3EE;
+  --brass: #C9A227;
+  --brass-light: #DFC15D;
+  --brass-subtle: #FAF5E8;
+  --brick: #8B1E1E;
+  --brick-subtle: #FDF2F2;
+  --slate: #6B7280;
   
-  --bg-app: #F8FAFC;
-  --bg-surface: #FFFFFF;
-  --bg-subtle: #F1F5F9;
-  
-  --text-primary: #0F172A;
-  --text-secondary: #64748B;
-  --text-tertiary: #94A3B8;
-  
-  --border-color: #E2E8F0;
-  --border-subtle: #F1F5F9;
-  
-  --primary: #4F46E5;
-  --primary-hover: #4338CA;
-  --primary-subtle: #EEF2FF;
-  
-  --success: #16A34A;
-  --success-subtle: #F0FDF4;
-  --warning: #D97706;
-  --warning-subtle: #FFFBEB;
-  --danger: #DC2626;
-  --danger-subtle: #FEF2F2;
+  --font-serif: 'Newsreader', 'Fraunces', 'Georgia', serif;
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 *, *::before, *::after {
@@ -40,67 +34,211 @@
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--bg-app);
-  color: var(--text-primary);
+  background-color: var(--paper);
+  color: var(--ink);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
 }
 
-/* Custom subtle scrollbar */
+/* Fluid Typography */
+.font-display-title {
+  font-family: var(--font-serif);
+  font-size: clamp(1.5rem, 2.5vw + 1rem, 2.125rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.font-display-heading {
+  font-family: var(--font-serif);
+  font-size: clamp(1.125rem, 1.5vw + 0.875rem, 1.375rem);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+/* Tabular Numbers & Real Monospace Alignment */
+.tabular-nums {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+/* Subtle hairline column divider for financial tables */
+.ledger-hairline-r {
+  border-right: 1px solid var(--paper-border);
+}
+
+.ledger-hairline-l {
+  border-left: 1px solid var(--paper-border);
+}
+
+/* --------------------------------------------------------------------------
+   Signature Diff / Approve Styles (The Core Moment)
+   -------------------------------------------------------------------------- */
+.ledger-row-kept {
+  border-left: 4px solid var(--ledger-green) !important;
+  background-color: rgba(27, 67, 50, 0.04);
+}
+
+.ledger-row-kept:hover {
+  background-color: rgba(27, 67, 50, 0.08);
+}
+
+.ledger-row-excluded {
+  opacity: 0.38;
+  text-decoration: line-through;
+  text-decoration-color: var(--brick);
+  text-decoration-thickness: 1.5px;
+  background-color: rgba(139, 30, 30, 0.02);
+  color: var(--slate);
+}
+
+.ledger-row-excluded td {
+  color: var(--slate) !important;
+}
+
+.ledger-cell-modified {
+  background-color: rgba(201, 162, 39, 0.18);
+  color: #785A04;
+  font-weight: 600;
+  border-radius: 2px;
+  padding: 1px 4px;
+}
+
+/* 400ms Brass Flash on Row Approval */
+@keyframes row-approve-flash {
+  0% {
+    background-color: rgba(201, 162, 39, 0.45);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.row-flash-approve {
+  animation: row-approve-flash 0.45s ease-out forwards;
+}
+
+/* --------------------------------------------------------------------------
+   AST Official Stamped Wax-Seal Badge
+   -------------------------------------------------------------------------- */
+.ast-seal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1.5px solid var(--ledger-green);
+  border-radius: 3px;
+  background: var(--ledger-green-subtle);
+  color: var(--ledger-green);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  box-shadow: 0 1px 2px rgba(27, 67, 50, 0.08), inset 0 0 0 1px rgba(27, 67, 50, 0.15);
+  animation: seal-scale-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes seal-scale-in {
+  0% { transform: scale(0.92); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Checkmark SVG Stroke Draw Animation */
+@keyframes stroke-draw {
+  from { stroke-dashoffset: 20; }
+  to { stroke-dashoffset: 0; }
+}
+
+.animate-stroke-draw {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 0;
+  animation: stroke-draw 0.35s ease-out forwards;
+}
+
+/* --------------------------------------------------------------------------
+   Terminal Command Strip
+   -------------------------------------------------------------------------- */
+.terminal-strip {
+  background-color: var(--ink);
+  color: #E2E8F0;
+  border: 1px solid var(--ink-border);
+  font-family: var(--font-mono);
+}
+
+.terminal-prompt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #CBD5E1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.terminal-prompt-btn:hover {
+  background: rgba(201, 162, 39, 0.18);
+  border-color: var(--brass);
+  color: #F8FAFC;
+  transform: translateY(-1px);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* --------------------------------------------------------------------------
+   Scrollbar & Utilities
+   -------------------------------------------------------------------------- */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--paper);
 }
 ::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
-  border-radius: 9999px;
+  background: #D0C9BA;
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94A3B8;
+  background: #B5AC99;
 }
 
-/* Code Syntax Highlighting (Clean Light Theme) */
-.code-keyword { color: #7C3AED; font-weight: 600; }
-.code-string { color: #059669; }
-.code-number { color: #D97706; }
-.code-function { color: #2563EB; font-weight: 500; }
-.code-operator { color: #475569; font-weight: 600; }
-.code-comment { color: #94A3B8; font-style: italic; }
-.code-builtin { color: #0284C7; font-weight: 500; }
-
-/* Subtle pulsing voice indicator */
-@keyframes voice-pulse {
-  0% { transform: scale(1); opacity: 0.8; }
-  50% { transform: scale(1.18); opacity: 0.3; }
-  100% { transform: scale(1); opacity: 0.8; }
-}
-
-.animate-voice-pulse {
-  animation: voice-pulse 1.8s ease-in-out infinite;
-}
+/* Code Syntax Highlighting in Terminal Box */
+.code-keyword { color: #D8B4FE; font-weight: 600; }
+.code-string { color: #86EFAC; }
+.code-number { color: #FDE047; }
+.code-function { color: #93C5FD; font-weight: 500; }
+.code-operator { color: #94A3B8; font-weight: 600; }
+.code-comment { color: #64748B; font-style: italic; }
+.code-builtin { color: #FCA5A5; font-weight: 500; }
 
 /* Slide over drawer transitions */
 .drawer-backdrop {
-  background-color: rgba(15, 23, 42, 0.4);
+  background-color: rgba(11, 14, 20, 0.5);
   backdrop-filter: blur(2px);
   transition: opacity 0.2s ease-in-out;
 }
 
-.drawer-content {
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Toast animations */
-@keyframes toast-enter {
-  from { transform: translateY(12px) scale(0.96); opacity: 0; }
-  to { transform: translateY(0) scale(1); opacity: 1; }
+/* Toast */
+@keyframes toast-in {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 .animate-toast {
-  animation: toast-enter 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: toast-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

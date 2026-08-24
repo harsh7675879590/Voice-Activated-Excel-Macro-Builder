@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VoiceMacro — AI Excel Macro Builder</title>
-    <meta name="description" content="AI Excel Macro Builder for tax and business professionals. Transform spreadsheets using natural voice and text commands.">
+    <title>VoiceMacro — AI Excel Macro Builder for Tax & Finance</title>
+    <meta name="description" content="Precision AI-powered Excel Macro Builder for tax and finance professionals. Audited, AST-whitelisted, and privacy-safe.">
 
-    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <!-- Google Fonts: Newsreader (Serif), Fraunces (Display Serif), JetBrains Mono (Ledger Monospace), Inter (UI Chrome) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,600&display=swap" rel="stylesheet">
 
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -18,24 +18,34 @@
             theme: {
                 extend: {
                     fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'monospace'],
+                        serif: ['Newsreader', 'Fraunces', 'Georgia', 'serif'],
+                        mono: ['JetBrains Mono', 'IBM Plex Mono', 'monospace'],
+                        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
                     },
                     colors: {
-                        brand: {
-                            50: '#EEF2FF',
-                            100: '#E0E7FF',
-                            500: '#6366F1',
-                            600: '#4F46E5',
-                            700: '#4338CA',
-                        }
+                        ink: '#0B0E14',
+                        'ink-surface': '#161B22',
+                        'ink-border': '#2A323D',
+                        paper: '#F7F5F0',
+                        'paper-surface': '#FFFFFF',
+                        'paper-subtle': '#EFECE6',
+                        'paper-border': '#E2DED4',
+                        'ledger-green': '#1B4332',
+                        'ledger-green-light': '#2D6A4F',
+                        'ledger-green-subtle': '#E8F3EE',
+                        brass: '#C9A227',
+                        'brass-light': '#DFC15D',
+                        'brass-subtle': '#FAF5E8',
+                        brick: '#8B1E1E',
+                        'brick-subtle': '#FDF2F2',
+                        slate: '#6B7280',
                     }
                 }
             }
         }
     </script>
 
-    <!-- Custom CSS -->
+    <!-- Custom Ledger & Terminal CSS -->
     <link rel="stylesheet" href="/css/main.css">
 
     <!-- React 18 & Babel Standalone -->
@@ -43,7 +53,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body class="bg-slate-50 text-slate-900 font-sans antialiased min-h-screen">
+<body class="bg-[#F7F5F0] text-[#0B0E14] font-sans antialiased min-h-screen selection:bg-[#1B4332] selection:text-white">
     <!-- React Mount Root -->
     <div id="root"></div>
 
