@@ -1,5 +1,5 @@
 /**
- * VoiceMacro — Financial Ledger & Terminal UI
+ * VOCALEXCEL — Financial Ledger & Terminal UI
  * Precision Excel Macro Builder for Tax & Finance Professionals
  */
 
@@ -147,9 +147,9 @@ function VocalExcelLogo({ className = "h-7" }) {
 }
 
 // ---------------------------------------------------------------------------
-// Main VoiceMacro Ledger Application
+// Main VOCALEXCEL Ledger Application
 // ---------------------------------------------------------------------------
-function VoiceMacroApp() {
+function VocalExcelApp() {
   // App state
   const [status, setStatus] = useState({ status: 'ready', has_file: false, has_llm: false });
   const [workbook, setWorkbook] = useState(null);
@@ -1353,9 +1353,9 @@ function VoiceMacroApp() {
   );
 }
 
-// Render VoiceMacro React Ledger Application
+// Render VOCALEXCEL React Ledger Application
 const rootEl = document.getElementById('root');
 if (rootEl) {
   const root = ReactDOM.createRoot(rootEl);
-  root.render(<VoiceMacroApp />);
+  root.render(<VocalExcelApp />);
 }

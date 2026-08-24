@@ -50,8 +50,8 @@ logger = logging.getLogger("voice_macro_builder")
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="Voice-Activated Excel Macro Builder",
-    description="AI-powered voice-to-code pipeline for tax professionals",
+    title="VOCALEXCEL — AI Excel Macro Builder",
+    description="AI-powered voice-to-code pipeline for tax and finance professionals",
     version="1.0.0",
 )
 
