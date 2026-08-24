@@ -446,11 +446,44 @@ function VocalExcelApp() {
       if (res.stage === 'ERROR') {
         showToast(res.error || 'Syntax/Logic error in command', 'error');
         setPipelineResult(res);
+
+        // Immediately log error in audit trail
+        const errEntry = {
+          id: 'err_' + Date.now(),
+          transcript: query,
+          intent_type: 'ERROR',
+          status: 'FAILED',
+          code: '',
+          was_executed: false,
+          timestamp: new Date().toISOString(),
+          result_summary: res.error || 'Execution failed AST safety check'
+        };
+        setHistory(prev => {
+          const updated = [errEntry, ...prev.filter(h => h.transcript !== query)];
+          try { localStorage.setItem('vocalexcel_audit_history', JSON.stringify(updated.slice(0, 50))); } catch (e) {}
+          return updated;
+        });
       } else {
         setPipelineResult(res);
         showToast('Audit simulation ready. Review ledger diff below.', 'info');
+
+        // Immediately log simulated query in audit trail
+        const simEntry = {
+          id: 'sim_' + Date.now(),
+          transcript: query,
+          intent_type: 'SIMULATED',
+          status: 'PENDING_APPROVAL',
+          code: res.generated_code?.code || '',
+          was_executed: false,
+          timestamp: new Date().toISOString(),
+          result_summary: 'AST Safe — Dry-Run Simulated (Awaiting Approval)'
+        };
+        setHistory(prev => {
+          const updated = [simEntry, ...prev.filter(h => h.transcript !== query)];
+          try { localStorage.setItem('vocalexcel_audit_history', JSON.stringify(updated.slice(0, 50))); } catch (e) {}
+          return updated;
+        });
       }
-      fetchHistory();
     } catch (err) {
       showToast(`Command error: ${err.message}`, 'error');
     } finally {
@@ -509,11 +542,30 @@ function VocalExcelApp() {
 
   // Reject
   const handleReject = async () => {
+    const rejectedTranscript = pipelineResult?.transcript || commandText;
     try {
       await API.rejectCode();
-      setPipelineResult(null);
-      showToast('Transformation rejected — live ledger untouched', 'info');
     } catch (e) {}
+    
+    if (rejectedTranscript) {
+      const rejectEntry = {
+        id: 'rej_' + Date.now(),
+        transcript: rejectedTranscript,
+        intent_type: 'REJECTED',
+        status: 'REJECTED',
+        code: pipelineResult?.generated_code?.code || '',
+        was_executed: false,
+        timestamp: new Date().toISOString(),
+        result_summary: 'User rejected transformation — live ledger untouched'
+      };
+      setHistory(prev => {
+        const updated = [rejectEntry, ...prev.filter(h => h.transcript !== rejectedTranscript)];
+        try { localStorage.setItem('vocalexcel_audit_history', JSON.stringify(updated.slice(0, 50))); } catch (e) {}
+        return updated;
+      });
+    }
+    setPipelineResult(null);
+    showToast('Transformation rejected — live ledger untouched', 'info');
   };
 
   // Copy Code
@@ -751,9 +803,23 @@ function VocalExcelApp() {
                       <p className="font-mono text-xs font-semibold text-[#0B0E14] line-clamp-1 group-hover:text-[#1B4332]">
                         &gt; {h.transcript || 'Executed macro'}
                       </p>
-                      <span className="font-mono text-[9px] text-[#1B4332] font-bold flex-shrink-0">
-                        [✓ EXECUTED]
-                      </span>
+                      {h.status === 'PENDING_APPROVAL' || h.intent_type === 'SIMULATED' ? (
+                        <span className="font-mono text-[9px] text-[#C9A227] font-bold flex-shrink-0 bg-[#FAF5E8] px-1.5 py-0.5 rounded border border-[#DFC15D]/40">
+                          [⚡ SIMULATED]
+                        </span>
+                      ) : h.status === 'REJECTED' || h.intent_type === 'REJECTED' ? (
+                        <span className="font-mono text-[9px] text-[#6B7280] font-bold flex-shrink-0 bg-[#EFECE6] px-1.5 py-0.5 rounded">
+                          [✗ REJECTED]
+                        </span>
+                      ) : h.status === 'FAILED' || h.intent_type === 'ERROR' ? (
+                        <span className="font-mono text-[9px] text-[#8B1E1E] font-bold flex-shrink-0 bg-[#FDF2F2] px-1.5 py-0.5 rounded">
+                          [✗ FAILED]
+                        </span>
+                      ) : (
+                        <span className="font-mono text-[9px] text-[#1B4332] font-bold flex-shrink-0 bg-[#E8F3EE] px-1.5 py-0.5 rounded border border-[#2D6A4F]/20">
+                          [✓ EXECUTED]
+                        </span>
+                      )}
                     </div>
                     <p className="font-mono text-[10px] text-[#6B7280] tabular-nums mt-1">
                       {new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
