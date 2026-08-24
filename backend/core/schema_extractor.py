@@ -149,6 +149,41 @@ class SchemaExtractor:
         else:
             return str(dtype)
 
+    def extract_sheet_schema(self, df: pd.DataFrame, sheet_name: str) -> SchemaCard:
+        """Extract schema card from a DataFrame — dtype inference on sample rows."""
+        return self._extract_sheet_schema(df, sheet_name)
+
+    def update_sheet_dataframe(self, filename: str, sheet_name: str, df: pd.DataFrame) -> Optional[WorkbookSchema]:
+        """Update cached DataFrame and recalculate its SchemaCard."""
+        if filename not in self._dataframe_cache:
+            self._dataframe_cache[filename] = {}
+        self._dataframe_cache[filename][sheet_name] = df
+
+        card = self._extract_sheet_schema(df, sheet_name)
+
+        wb_schema = self._workbook_cache.get(filename)
+        if wb_schema:
+            new_sheets = []
+            found = False
+            for s in wb_schema.sheets:
+                if s.sheet_name == sheet_name:
+                    new_sheets.append(card)
+                    found = True
+                else:
+                    new_sheets.append(s)
+            if not found:
+                new_sheets.append(card)
+            wb_schema.sheets = new_sheets
+            return wb_schema
+        else:
+            new_wb = WorkbookSchema(
+                filename=filename,
+                sheets=[card],
+                active_sheet=sheet_name,
+            )
+            self._workbook_cache[filename] = new_wb
+            return new_wb
+
     def get_dataframe(self, filename: str, sheet_name: str) -> Optional[pd.DataFrame]:
         """Retrieve a cached DataFrame for code execution."""
         file_dfs = self._dataframe_cache.get(filename, {})

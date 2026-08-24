@@ -198,6 +198,7 @@ class ExecuteRequest(BaseModel):
     code: str
     language: CodeLanguage = CodeLanguage.PANDAS
     active_sheet: Optional[str] = None
+    transcript: Optional[str] = None
 
 
 class ExecutionResult(BaseModel):
@@ -205,6 +206,7 @@ class ExecutionResult(BaseModel):
     rows_affected: int = 0
     message: str
     result_preview: list[dict] = Field(default_factory=list)
+    schema: Optional[WorkbookSchema] = None
 
 
 class HistoryEntry(BaseModel):

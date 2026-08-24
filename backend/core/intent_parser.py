@@ -1,10 +1,9 @@
 """
 Intent Parser — Classifies voice transcripts into domain-specific intents
-and extracts structured entities (columns, thresholds, date ranges).
+and extracts structured entities (columns, thresholds, text filters, calculations).
 
 This is a fast, rule-based classifier (not LLM-based) that runs before
 code generation to provide structured context to the prompt builder.
-Ambiguity detection is handled here, not in the LLM.
 """
 
 from __future__ import annotations
@@ -27,12 +26,13 @@ INTENT_KEYWORDS: dict[IntentType, list[str]] = {
         "filter", "where", "only", "above", "below",
         "greater", "less", "more than", "fewer", "between", "exclude",
         "include", "remove", "keep", "equals", "not equal", "contains",
-        "starts with", "ends with", "matching", "having",
+        "starts with", "ends with", "matching", "having", "is", "are",
+        "show only", "find",
     ],
     IntentType.AGGREGATE: [
         "group by", "grouped by", "sum", "total", "average", "mean", "count",
         "aggregate", "subtotal", "grand total", "summarize", "summarise",
-        "breakdown", "tally",
+        "breakdown", "tally", "per", "by state", "by quarter", "by client",
     ],
     IntentType.SORT: [
         "sort", "order", "rank", "arrange", "ascending", "descending",
@@ -40,8 +40,8 @@ INTENT_KEYWORDS: dict[IntentType, list[str]] = {
     ],
     IntentType.CALCULATE: [
         "calculate", "compute", "formula", "add column", "new column",
-        "multiply", "divide", "subtract", "percentage", "percent", "ratio", "margin",
-        "tax rate", "deduction", "difference", "growth", "cumulative",
+        "multiply", "divide", "subtract", "minus", "plus", "percentage", "percent", "ratio", "margin",
+        "tax rate", "deduction", "difference", "growth", "cumulative", "profit",
     ],
     IntentType.FORMAT: [
         "format", "bold", "highlight", "color", "colour", "underline",
@@ -71,9 +71,9 @@ NUM_PATTERN = re.compile(
 # Comparison operators in natural language
 COMPARISON_MAP = {
     "above": ">", "greater than": ">", "more than": ">", "over": ">",
-    "exceeds": ">", "higher than": ">",
+    "exceeds": ">", "higher than": ">", "greater": ">",
     "below": "<", "less than": "<", "fewer than": "<", "under": "<",
-    "lower than": "<",
+    "lower than": "<", "less": "<",
     "at least": ">=", "minimum": ">=", "no less than": ">=",
     "at most": "<=", "maximum": "<=", "no more than": "<=",
     "equals": "==", "equal to": "==", "exactly": "==", "is": "==",
@@ -90,6 +90,13 @@ AGG_FUNCTIONS = {
     "minimum": "min", "min": "min", "lowest": "min", "smallest": "min",
     "median": "median", "middle": "median",
     "standard deviation": "std", "std": "std",
+}
+
+# Known common tax dataset categories for instant recognition
+COMMON_CATEGORIES = {
+    "State": ["CA", "NY", "TX", "FL", "IL", "PA", "OH", "GA", "NC", "MI", "NJ", "VA", "WA", "AZ", "MA"],
+    "Filing_Status": ["Filed", "Pending", "Overdue", "Rejected", "Under Review", "Approved"],
+    "Quarter": ["Q1", "Q2", "Q3", "Q4"],
 }
 
 
@@ -136,17 +143,21 @@ class IntentParser:
         for intent_type, keywords in INTENT_KEYWORDS.items():
             score = 0.0
             for keyword in keywords:
-                # Use word-boundary matching
                 pattern = r'\b' + re.escape(keyword) + r'\b'
                 if re.search(pattern, text):
-                    # Multi-word keywords get higher weight
-                    weight = len(keyword.split()) * 0.2
-                    score += 0.3 + weight
+                    weight = len(keyword.split()) * 0.25
+                    score += 0.35 + weight
             scores[intent_type] = min(score, 1.0)
 
         # Explicit intent boosts
         if re.search(r'\b(?:top|bottom|highest|lowest|rank)\s+\d+\b', text):
-            scores[IntentType.SORT] = max(scores.get(IntentType.SORT, 0.0), 0.85)
+            scores[IntentType.SORT] = max(scores.get(IntentType.SORT, 0.0), 0.9)
+
+        if re.search(r'\b(?:minus|subtract|plus|multiply|divide|profit|margin|rate|calculate|pct|percentage)\b', text):
+            scores[IntentType.CALCULATE] = max(scores.get(IntentType.CALCULATE, 0.0), 0.85)
+
+        if re.search(r'\b(?:group\s*by|by\s+state|by\s+quarter|by\s+client|total\s+by|sum\s+of)\b', text):
+            scores[IntentType.AGGREGATE] = max(scores.get(IntentType.AGGREGATE, 0.0), 0.9)
 
         if not scores or max(scores.values()) == 0:
             return IntentType.UNKNOWN, 0.0
@@ -154,8 +165,8 @@ class IntentParser:
         best_intent = max(scores, key=scores.get)
         confidence = scores[best_intent]
 
-        if confidence > 0.5:
-            confidence = min(confidence * 1.2, 0.98)
+        if confidence > 0.4:
+            confidence = min(confidence * 1.25, 0.99)
 
         return best_intent, round(confidence, 2)
 
@@ -178,45 +189,32 @@ class IntentParser:
         if comparison:
             entities["comparison"] = comparison
 
+        # Extract string/categorical filters
+        text_filters = self._extract_text_filters(text)
+        if text_filters:
+            entities["text_filters"] = text_filters
+
+        # Extract arithmetic operation (for calculate)
+        arithmetic = self._extract_arithmetic(text)
+        if arithmetic:
+            entities["arithmetic"] = arithmetic
+
         # Extract aggregation function
-        if intent_type == IntentType.AGGREGATE:
+        if intent_type == IntentType.AGGREGATE or "sum" in text or "total" in text or "average" in text:
             agg_func = self._extract_agg_function(text)
             if agg_func:
                 entities["agg_function"] = agg_func
 
         # Extract sort direction
-        if intent_type == IntentType.SORT:
+        if intent_type == IntentType.SORT or "sort" in text or "order" in text:
             entities["ascending"] = not any(
                 kw in text for kw in ["descending", "desc", "highest", "largest", "top"]
             )
 
         # Extract "group by" column
-        group_col_found = None
-        if self.schema:
-            # Check if any schema column follows "group by" or "by"
-            group_pattern = re.search(r'(?:group(?:ed)?\s+by|by)\s+([a-zA-Z0-9_\s]+)', text)
-            if group_pattern:
-                following_text = group_pattern.group(1).lower()
-                for col in self.schema.columns:
-                    col_clean = col.name.lower().replace("_", " ")
-                    if col_clean in following_text or col.name.lower() in following_text:
-                        group_col_found = col.name
-                        break
-                    # Also check individual words
-                    for word in col.name.lower().split("_"):
-                        if len(word) >= 3 and word in following_text.split()[:3]:
-                            group_col_found = col.name
-                            break
-                    if group_col_found:
-                        break
-
+        group_col_found = self._extract_group_by_col(text)
         if group_col_found:
             entities["group_by"] = group_col_found
-        elif "group by" in text:
-            # Fallback simple regex
-            group_match = re.search(r'(?:group\s+by|by)\s+(\w+)', text)
-            if group_match and group_match.group(1) not in ("and", "the", "a", "all", "sum", "total"):
-                entities["group_by"] = group_match.group(1).strip()
 
         # Extract top/bottom N
         top_match = re.search(r'(?:top|first|bottom|last|highest|lowest)\s+(\d+)', text)
@@ -226,32 +224,107 @@ class IntentParser:
         return entities
 
     def _extract_columns(self, text: str) -> list[str]:
-        """Match words in the transcript against known column names.
-        Supports exact match, space-for-underscore match, and partial substring match."""
+        """Match words in the transcript against known column names."""
         if not self.schema:
             return []
 
         found_columns = []
-        text_words = set(text.split())
+        text_words = set(re.findall(r'\b[a-zA-Z0-9_]+\b', text))
 
         for col in self.schema.columns:
             col_lower = col.name.lower()
             col_spaced = col_lower.replace("_", " ")
 
-            # Exact match
+            # Exact match on full name
             if col_spaced in text or col_lower in text:
-                found_columns.append(col.name)
+                if col.name not in found_columns:
+                    found_columns.append(col.name)
                 continue
 
-            # Partial match: check if any word in the transcript appears as a
-            # meaningful part of the column name (e.g., "revenue" matches "Gross_Revenue")
-            col_parts = col_lower.split("_")
-            for word in text_words:
-                if len(word) >= 3 and word in col_parts:
-                    found_columns.append(col.name)
+            # Word match: check if individual meaningful parts match
+            col_parts = [p for p in col_lower.split("_") if len(p) >= 3]
+            for part in col_parts:
+                if part in text_words:
+                    if col.name not in found_columns:
+                        found_columns.append(col.name)
                     break
 
         return found_columns
+
+    def _extract_text_filters(self, text: str) -> list[dict]:
+        """Extract categorical / text matches (e.g. State='CA', Status='Pending', Quarter='Q1')."""
+        matches = []
+
+        # Check against common known categories and schema columns
+        schema_col_names = [c.name for c in self.schema.columns] if self.schema else list(COMMON_CATEGORIES.keys())
+
+        for col_name, values in COMMON_CATEGORIES.items():
+            # Check if column exists in schema
+            actual_col = next((c for c in schema_col_names if c.lower() == col_name.lower()), None)
+            if not actual_col:
+                continue
+
+            for val in values:
+                # Match word boundary for category
+                pattern = r'\b' + re.escape(val.lower()) + r'\b'
+                if re.search(pattern, text):
+                    matches.append({
+                        "column": actual_col,
+                        "value": val,
+                        "operator": "=="
+                    })
+
+        # Also check for explicit quotes or "where/is X"
+        quoted_matches = re.findall(r'["\']([^"\']+)["\']', text)
+        for qm in quoted_matches:
+            if not any(m["value"].lower() == qm.lower() for m in matches):
+                # Assign to first string column if available
+                string_cols = [c.name for c in self.schema.columns if c.dtype in ("string", "object")] if self.schema else []
+                if string_cols:
+                    matches.append({
+                        "column": string_cols[0],
+                        "value": qm,
+                        "operator": "contains"
+                    })
+
+        return matches
+
+    def _extract_arithmetic(self, text: str) -> Optional[dict]:
+        """Extract arithmetic operations like col1 minus col2."""
+        if any(w in text for w in ["minus", "subtract", "subtracted from", "less"]):
+            return {"op": "-", "name": "diff"}
+        if any(w in text for w in ["plus", "add", "added to", "sum of"]):
+            return {"op": "+", "name": "sum"}
+        if any(w in text for w in ["divided by", "ratio", "over", "per"]):
+            return {"op": "/", "name": "ratio"}
+        if any(w in text for w in ["times", "multiplied by", "product of"]):
+            return {"op": "*", "name": "product"}
+        return None
+
+    def _extract_group_by_col(self, text: str) -> Optional[str]:
+        """Find the grouping column in the query."""
+        if not self.schema:
+            return None
+
+        # Check explicit "group by X" or "by X" or "per X"
+        pattern = re.search(r'(?:group(?:ed)?\s+by|by|per|across)\s+([a-zA-Z0-9_\s]+)', text)
+        if pattern:
+            following = pattern.group(1).strip().lower()
+            for col in self.schema.columns:
+                col_clean = col.name.lower().replace("_", " ")
+                if col_clean in following or col.name.lower() in following:
+                    return col.name
+                for word in col.name.lower().split("_"):
+                    if len(word) >= 3 and word in following.split()[:2]:
+                        return col.name
+
+        # Check if query mentions state/quarter/client directly
+        for col in self.schema.columns:
+            if col.name.lower() in text or col.name.lower().replace("_", " ") in text:
+                if col.dtype in ("string", "object", "category") and ("group" in text or "total" in text or "sum" in text or "average" in text):
+                    return col.name
+
+        return None
 
     def _extract_numbers(self, text: str) -> list[float]:
         """Extract numerical values from the transcript."""
@@ -272,36 +345,18 @@ class IntentParser:
 
     def _extract_comparison(self, text: str) -> Optional[str]:
         """Extract comparison operator from natural language."""
-        # Sort by length (longer phrases first) to match "greater than" before "greater"
         for phrase, op in sorted(COMPARISON_MAP.items(), key=lambda x: -len(x[0])):
-            if phrase in text:
+            if re.search(r'\b' + re.escape(phrase) + r'\b', text):
                 return op
         return None
 
     def _extract_agg_function(self, text: str) -> Optional[str]:
         """Extract aggregation function."""
         for phrase, func in sorted(AGG_FUNCTIONS.items(), key=lambda x: -len(x[0])):
-            if phrase in text:
+            if re.search(r'\b' + re.escape(phrase) + r'\b', text):
                 return func
         return None
 
     def _detect_ambiguities(self, text: str, entities: dict) -> list[str]:
-        """
-        Detect underspecified terms that COULD need clarification.
-        Returns advisory hints — the pipeline should NOT block on these.
-        If columns were already resolved, don't flag ambiguity.
-        """
-        ambiguities = []
-
-        if not self.schema:
-            return ambiguities
-
-        columns = entities.get("columns", [])
-
-        # If columns were already extracted, no ambiguity to flag
-        if columns:
-            return ambiguities
-
-        # Only flag ambiguity if zero columns matched AND the intent requires a column
-        # (Don't block — just hint)
-        return ambiguities
+        """Advisory ambiguities."""
+        return []

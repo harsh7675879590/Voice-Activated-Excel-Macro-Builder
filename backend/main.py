@@ -78,8 +78,10 @@ pii_redactor = PIIRedactor()
 current_file: Optional[str] = None
 current_sheet: Optional[str] = None
 current_df: Optional[pd.DataFrame] = None
+original_df: Optional[pd.DataFrame] = None
 command_history: list[HistoryEntry] = []
 pending_code: Optional[str] = None
+pending_transcript: Optional[str] = None
 
 # ---------------------------------------------------------------------------
 # Static file serving — frontend
@@ -128,7 +130,7 @@ async def upload_excel(file: UploadFile = File(...)):
     Upload an Excel file and extract its schema.
     Raw cell values are cached locally but NEVER sent to any external service.
     """
-    global current_file, current_sheet, current_df
+    global current_file, current_sheet, current_df, original_df
 
     if not file.filename.endswith((".xlsx", ".xls", ".xlsm")):
         raise HTTPException(400, "Only .xlsx, .xls, .xlsm files are supported")
@@ -140,8 +142,9 @@ async def upload_excel(file: UploadFile = File(...)):
         current_file = file.filename
         current_sheet = workbook_schema.active_sheet
 
-        # Cache the active sheet's DataFrame
+        # Cache the active sheet's DataFrame and backup
         current_df = schema_extractor.get_dataframe(file.filename, current_sheet)
+        original_df = current_df.copy(deep=True) if current_df is not None else None
 
         logger.info(
             f"Uploaded: {file.filename} — "
@@ -162,7 +165,7 @@ async def upload_excel(file: UploadFile = File(...)):
 @app.post("/api/set-active-sheet")
 async def set_active_sheet(request: dict):
     """Switch the active sheet for operations."""
-    global current_sheet, current_df
+    global current_sheet, current_df, original_df
 
     sheet_name = request.get("sheet_name")
     if not current_file:
@@ -174,6 +177,7 @@ async def set_active_sheet(request: dict):
 
     current_sheet = sheet_name
     current_df = df
+    original_df = df.copy(deep=True)
 
     schema = schema_extractor.get_sheet_schema(current_file, sheet_name)
     return {
@@ -189,13 +193,13 @@ async def process_voice_command(request: VoiceCommandRequest):
     Main pipeline endpoint: transcript → intent → schema → code → validate → dry-run.
     Returns the complete pipeline result for frontend display.
     """
-    global current_df, pending_code
+    global current_df, pending_code, pending_transcript
 
     transcript = request.transcript
     logger.info(f"Processing voice command: '{transcript}'")
 
     if not current_file or current_df is None:
-        raise HTTPException(400, "Please upload an Excel file first")
+        raise HTTPException(400, "Please upload an Excel file or load sample data first")
 
     try:
         # Stage 1: PII Redaction
@@ -205,7 +209,7 @@ async def process_voice_command(request: VoiceCommandRequest):
         # Stage 2: Get schema for current sheet
         schema = schema_extractor.get_sheet_schema(current_file, current_sheet)
         if not schema:
-            raise HTTPException(500, "Failed to extract schema for active sheet")
+            schema = schema_extractor.extract_sheet_schema(current_df, current_sheet or "Sheet1")
 
         # Stage 3: Parse intent
         parser = IntentParser(schema=schema)
@@ -265,8 +269,9 @@ async def process_voice_command(request: VoiceCommandRequest):
                 error=f"Dry-run execution failed: {str(e)}",
             ).model_dump()
 
-        # Cache pending code for approval
+        # Cache pending code and transcript for approval
         pending_code = generated.code
+        pending_transcript = transcript
 
         # Return full pipeline result (awaiting approval)
         return PipelineResponse(
@@ -297,7 +302,7 @@ async def execute_approved_code(request: ExecuteRequest):
     Execute user-approved code against the live DataFrame.
     Uses the SAME validated code from the dry-run — never re-generates.
     """
-    global current_df
+    global current_df, current_file, current_sheet, pending_transcript
 
     if current_df is None:
         raise HTTPException(400, "No data loaded")
@@ -317,11 +322,18 @@ async def execute_approved_code(request: ExecuteRequest):
             # Update the live DataFrame
             current_df = result_df
 
+            # Dynamically update the workbook schema cache so future queries know new columns
+            updated_schema = None
+            if current_file and current_sheet:
+                updated_schema = schema_extractor.update_sheet_dataframe(current_file, current_sheet, current_df)
+                result.schema = updated_schema
+
             # Log to history
+            transcript_text = request.transcript or pending_transcript or "Executed operation"
             history_entry = HistoryEntry(
                 id=str(uuid.uuid4()),
-                transcript="",
-                intent_type=result.message,
+                transcript=transcript_text,
+                intent_type="EXECUTED",
                 code=code,
                 language=request.language,
                 was_executed=True,
@@ -340,9 +352,30 @@ async def execute_approved_code(request: ExecuteRequest):
 @app.post("/api/reject")
 async def reject_code():
     """Reject the pending code — no changes applied."""
-    global pending_code
+    global pending_code, pending_transcript
     pending_code = None
+    pending_transcript = None
     return {"success": True, "message": "Changes rejected — no modifications made"}
+
+
+@app.post("/api/reset-data")
+async def reset_data():
+    """Reset the current DataFrame back to the original unmodified dataset."""
+    global current_df, original_df, current_file, current_sheet
+
+    if original_df is None or current_file is None:
+        raise HTTPException(400, "No original data available to restore")
+
+    current_df = original_df.copy(deep=True)
+    updated_schema = schema_extractor.update_sheet_dataframe(current_file, current_sheet, current_df)
+
+    logger.info(f"Reset data for {current_file} [{current_sheet}] to {len(current_df)} rows")
+
+    return {
+        "success": True,
+        "message": f"Data reset to original state ({len(current_df)} rows)",
+        "schema": updated_schema.model_dump() if updated_schema else None,
+    }
 
 
 @app.get("/api/history")
@@ -365,15 +398,17 @@ async def get_current_data():
         record = {}
         for col in current_df.columns:
             val = row[col]
-            if val is None or (isinstance(val, float) and np.isnan(val)):
+            if val is None or (isinstance(val, float) and np.isnan(val)) or pd.isna(val):
                 record[str(col)] = None
+            elif isinstance(val, (pd.Timestamp, np.datetime64)):
+                record[str(col)] = pd.to_datetime(val).strftime("%Y-%m-%d")
             else:
                 record[str(col)] = str(val)
         preview.append(record)
 
     return {
         "data": preview,
-        "columns": list(current_df.columns),
+        "columns": [str(c) for c in current_df.columns],
         "row_count": len(current_df),
     }
 
@@ -384,7 +419,7 @@ async def generate_sample_data():
     Generate a sample tax dataset for demo purposes.
     Useful when no real Excel file is available.
     """
-    global current_file, current_sheet, current_df
+    global current_file, current_sheet, current_df, original_df
 
     sample_df = pd.DataFrame({
         "Client_Name": [
@@ -434,6 +469,7 @@ async def generate_sample_data():
     current_file = "sample_tax_data.xlsx"
     current_sheet = "Tax_Data"
     current_df = sample_df
+    original_df = sample_df.copy(deep=True)
 
     # Create schema
     from backend.models.schemas import ColumnSchema, SchemaCard, WorkbookSchema
@@ -450,7 +486,7 @@ async def generate_sample_data():
         else:
             dtype_str = "string"
         columns.append(ColumnSchema(
-            name=col,
+            name=str(col),
             dtype=dtype_str,
             sample_cardinality=int(sample_df[col].nunique()),
         ))

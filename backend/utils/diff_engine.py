@@ -20,7 +20,7 @@ MAX_PREVIEW_ROWS = 50  # Max rows to include in the preview payload
 
 def compute_diff(before: pd.DataFrame, after: pd.DataFrame) -> DiffResult:
     """
-    Compute a structured diff between two DataFrames.
+    Compute a structured diff between two DataFrames with fast vectorized comparison.
     Returns cell-level changes and summary statistics.
     """
     changes: list[CellDiff] = []
@@ -28,83 +28,77 @@ def compute_diff(before: pd.DataFrame, after: pd.DataFrame) -> DiffResult:
     rows_before = len(before)
     rows_after = len(after)
 
-    # Handle completely different column sets
-    all_cols = sorted(set(list(before.columns) + list(after.columns)))
+    # Convert columns list while preserving order
+    all_cols = list(dict.fromkeys(list(before.columns) + list(after.columns)))
 
     # Align DataFrames for comparison
     before_aligned = before.reindex(columns=all_cols).reset_index(drop=True)
     after_aligned = after.reindex(columns=all_cols).reset_index(drop=True)
 
-    rows_added = 0
-    rows_removed = 0
+    rows_added = max(0, rows_after - rows_before)
+    rows_removed = max(0, rows_before - rows_after)
     cells_modified = 0
 
-    # Compare row by row up to the minimum length
-    min_rows = min(len(before_aligned), len(after_aligned))
+    min_rows = min(rows_before, rows_after)
 
-    for i in range(min_rows):
+    # Fast row-by-row check on converted string arrays
+    if min_rows > 0 and len(all_cols) > 0:
+        b_sub = before_aligned.iloc[:min_rows]
+        a_sub = after_aligned.iloc[:min_rows]
+
         for col in all_cols:
-            old_val = before_aligned.iloc[i].get(col)
-            new_val = after_aligned.iloc[i].get(col)
+            b_col_vals = b_sub[col].values
+            a_col_vals = a_sub[col].values
 
-            old_str = _safe_str(old_val)
-            new_str = _safe_str(new_val)
+            for i in range(min_rows):
+                old_val = b_col_vals[i]
+                new_val = a_col_vals[i]
 
-            if old_str != new_str:
-                cells_modified += 1
-                changes.append(CellDiff(
-                    row=i,
-                    column=col,
-                    old_value=old_str,
-                    new_value=new_str,
-                    diff_type=DiffType.MODIFIED,
-                ))
+                old_str = _safe_str(old_val)
+                new_str = _safe_str(new_val)
+
+                if old_str != new_str:
+                    cells_modified += 1
+                    if len(changes) < 500:
+                        changes.append(CellDiff(
+                            row=i,
+                            column=str(col),
+                            old_value=old_str,
+                            new_value=new_str,
+                            diff_type=DiffType.MODIFIED,
+                        ))
 
     # Handle added rows
-    if len(after_aligned) > len(before_aligned):
-        extra_rows = len(after_aligned) - len(before_aligned)
-        rows_added = extra_rows
-        for i in range(len(before_aligned), len(after_aligned)):
+    if rows_after > rows_before:
+        for i in range(rows_before, rows_after):
             for col in all_cols:
-                new_val = after_aligned.iloc[i].get(col)
+                if len(changes) >= 500:
+                    break
+                val = after_aligned.at[i, col] if col in after_aligned.columns else None
                 changes.append(CellDiff(
                     row=i,
-                    column=col,
-                    old_value=None,
-                    new_value=_safe_str(new_val),
-                    diff_type=DiffType.ADDED,
-                ))
-
-    # Handle removed rows
-    if len(before_aligned) > len(after_aligned):
-        extra_rows = len(before_aligned) - len(after_aligned)
-        rows_removed = extra_rows
-        for i in range(len(after_aligned), len(before_aligned)):
-            for col in all_cols:
-                old_val = before_aligned.iloc[i].get(col)
-                changes.append(CellDiff(
-                    row=i,
-                    column=col,
-                    old_value=_safe_str(old_val),
-                    new_value=None,
-                    diff_type=DiffType.REMOVED,
-                ))
-
-    # New columns
-    new_cols = set(after.columns) - set(before.columns)
-    for col in new_cols:
-        for i in range(min(len(after_aligned), MAX_PREVIEW_ROWS)):
-            val = after_aligned.iloc[i].get(col)
-            if val is not None and not (isinstance(val, float) and np.isnan(val)):
-                changes.append(CellDiff(
-                    row=i,
-                    column=col,
+                    column=str(col),
                     old_value=None,
                     new_value=_safe_str(val),
                     diff_type=DiffType.ADDED,
                 ))
 
-    # Build preview data (limited rows)
+    # Handle removed rows
+    if rows_before > rows_after:
+        for i in range(rows_after, rows_before):
+            for col in all_cols:
+                if len(changes) >= 500:
+                    break
+                val = before_aligned.at[i, col] if col in before_aligned.columns else None
+                changes.append(CellDiff(
+                    row=i,
+                    column=str(col),
+                    old_value=_safe_str(val),
+                    new_value=None,
+                    diff_type=DiffType.REMOVED,
+                ))
+
+    # Build preview data (first MAX_PREVIEW_ROWS)
     preview_before = _df_to_preview(before, MAX_PREVIEW_ROWS)
     preview_after = _df_to_preview(after, MAX_PREVIEW_ROWS)
 
@@ -114,7 +108,7 @@ def compute_diff(before: pd.DataFrame, after: pd.DataFrame) -> DiffResult:
         rows_added=rows_added,
         rows_removed=rows_removed,
         cells_modified=cells_modified,
-        changes=changes[:500],  # Cap changes for large diffs
+        changes=changes[:500],
         preview_before=preview_before,
         preview_after=preview_after,
     )
@@ -122,21 +116,24 @@ def compute_diff(before: pd.DataFrame, after: pd.DataFrame) -> DiffResult:
 
 def _safe_str(val) -> Optional[str]:
     """Convert a value to string, handling NaN/None gracefully."""
-    if val is None:
+    if val is None or (isinstance(val, float) and np.isnan(val)) or pd.isna(val):
         return None
-    if isinstance(val, float) and np.isnan(val):
-        return None
+    if isinstance(val, (pd.Timestamp, np.datetime64)):
+        return pd.to_datetime(val).strftime("%Y-%m-%d")
     return str(val)
 
 
 def _df_to_preview(df: pd.DataFrame, max_rows: int) -> list[dict]:
     """Convert a DataFrame to a list of dicts for JSON serialization."""
+    if df is None or len(df) == 0:
+        return []
     preview_df = df.head(max_rows)
     records = []
+    columns = [str(c) for c in preview_df.columns]
     for _, row in preview_df.iterrows():
         record = {}
-        for col in preview_df.columns:
-            val = row[col]
-            record[str(col)] = _safe_str(val)
+        for col in columns:
+            record[col] = _safe_str(row.get(col))
         records.append(record)
     return records
+

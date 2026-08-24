@@ -262,6 +262,7 @@ class CodeGenerator:
             limit=limit,
             schema=schema,
             columns=columns,
+            entities=entities,
         )
 
         return GeneratedCode(
@@ -275,23 +276,48 @@ class CodeGenerator:
     # Rule-based generators for each intent type
     # -------------------------------------------------------------------
 
-    def _gen_filter(self, *, target_col, thresholds, comparison, **kwargs) -> tuple[str, str]:
-        if thresholds:
-            threshold = thresholds[0]
-            if comparison == "between" and len(thresholds) >= 2:
-                code = (
-                    f"result = df[df['{target_col}'].between({thresholds[0]}, {thresholds[1]})].copy()"
-                )
-                explanation = f"Filter rows where {target_col} is between {thresholds[0]} and {thresholds[1]}"
+    def _gen_filter(self, *, target_col, thresholds, comparison, entities, schema, **kwargs) -> tuple[str, str]:
+        text_filters = entities.get("text_filters", [])
+        cond_parts = []
+        desc_parts = []
+
+        # 1. Handle categorical / text filters
+        for tf in text_filters:
+            col = tf["column"]
+            val = tf["value"]
+            op = tf.get("operator", "==")
+            if op == "contains":
+                cond_parts.append(f"df['{col}'].astype(str).str.contains('{val}', case=False, na=False)")
+                desc_parts.append(f"{col} contains '{val}'")
             else:
-                code = f"result = df[df['{target_col}'] {comparison} {threshold}].copy()"
-                explanation = f"Filter rows where {target_col} {comparison} {threshold}"
-        else:
-            code = f"result = df[df['{target_col}'].notna()].copy()"
-            explanation = f"Filter rows where {target_col} has non-null values"
+                cond_parts.append(f"(df['{col}'].astype(str).str.lower() == '{val.lower()}')")
+                desc_parts.append(f"{col} is '{val}'")
+
+        # 2. Handle numerical thresholds
+        if thresholds:
+            if comparison == "between" and len(thresholds) >= 2:
+                cond_parts.append(f"df['{target_col}'].between({thresholds[0]}, {thresholds[1]})")
+                desc_parts.append(f"{target_col} between {thresholds[0]} and {thresholds[1]}")
+            else:
+                cond_parts.append(f"(df['{target_col}'] {comparison} {thresholds[0]})")
+                desc_parts.append(f"{target_col} {comparison} {thresholds[0]}")
+
+        if cond_parts:
+            combined_cond = " & ".join(cond_parts)
+            code = f"result = df[{combined_cond}].copy()"
+            explanation = f"Filter rows where {' and '.join(desc_parts)}"
+            return code, explanation
+
+        # Fallback non-null filter
+        code = f"result = df[df['{target_col}'].notna()].copy()"
+        explanation = f"Filter rows where {target_col} has non-null values"
         return code, explanation
 
-    def _gen_aggregate(self, *, target_col, group_col, agg_func, **kwargs) -> tuple[str, str]:
+    def _gen_aggregate(self, *, target_col, group_col, agg_func, transcript, **kwargs) -> tuple[str, str]:
+        t = transcript.lower()
+        if "count" in t or "how many" in t:
+            agg_func = "count"
+
         if group_col and group_col != target_col:
             code = (
                 f"result = df.groupby('{group_col}')['{target_col}'].{agg_func}()"
@@ -305,17 +331,41 @@ class CodeGenerator:
 
     def _gen_sort(self, *, target_col, ascending, limit, **kwargs) -> tuple[str, str]:
         direction = "ascending" if ascending else "descending"
-        code = f"result = df.sort_values('{target_col}', ascending={ascending}).copy()"
         if limit:
             code = f"result = df.sort_values('{target_col}', ascending={ascending}).head({limit}).copy()"
             explanation = f"Top {limit} rows sorted by {target_col} ({direction})"
         else:
+            code = f"result = df.sort_values('{target_col}', ascending={ascending}).copy()"
             explanation = f"Sort by {target_col} ({direction})"
         return code, explanation
 
-    def _gen_calculate(self, *, target_col, transcript, columns, **kwargs) -> tuple[str, str]:
+    def _gen_calculate(self, *, target_col, transcript, columns, entities, schema, **kwargs) -> tuple[str, str]:
         t = transcript.lower()
-        if "percentage" in t or "percent" in t or "%" in t:
+        arithmetic = entities.get("arithmetic")
+
+        # 1. Profit calculation
+        if "profit" in t:
+            all_col_names = [c.name for c in schema.columns] if schema else []
+            gross = next((c for c in all_col_names if "gross" in c.lower()), "Gross_Revenue")
+            net = next((c for c in all_col_names if "net" in c.lower()), "Net_Revenue")
+            if gross in all_col_names and net in all_col_names:
+                code = f"result = df.copy()\nresult['Profit'] = df['{gross}'] - df['{net}']"
+                explanation = f"Calculate Profit as {gross} minus {net}"
+                return code, explanation
+
+        # 2. Arithmetic between two columns
+        if len(columns) >= 2 and arithmetic:
+            col1 = columns[0]
+            col2 = columns[1]
+            op = arithmetic["op"]
+            name = arithmetic["name"]
+            new_col = f"{col1}_{name}_{col2}"
+            code = f"result = df.copy()\nresult['{new_col}'] = df['{col1}'] {op} df['{col2}']"
+            explanation = f"Calculate {new_col} as {col1} {op} {col2}"
+            return code, explanation
+
+        # 3. Standard calculate heuristics
+        if "percentage" in t or "percent" in t or "%" in t or "pct" in t:
             code = f"result = df.copy()\nresult['{target_col}_pct'] = (df['{target_col}'] / df['{target_col}'].sum() * 100).round(2)"
             explanation = f"Calculate percentage of {target_col}"
         elif "tax" in t and "rate" in t:

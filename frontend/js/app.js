@@ -92,6 +92,12 @@ const App = {
             sampleBtn.addEventListener('click', () => this.loadSampleData());
         }
 
+        // Reset data button
+        const resetBtn = document.getElementById('btn-reset-data');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => this.resetData());
+        }
+
         // Approve button
         const approveBtn = document.getElementById('btn-approve');
         if (approveBtn) {
@@ -243,29 +249,29 @@ const App = {
      */
     async processCommand(transcript) {
         this.state.isProcessing = true;
+        this.state.currentTranscript = transcript;
         this._setProcessingUI(true);
 
         const orb = document.getElementById('voice-orb');
         if (orb) orb.classList.add('processing');
 
         try {
-            // Animate pipeline stages
+            // Smoothly animate stages sequentially
             const stages = ['transcribing', 'parsing_intent', 'extracting_schema', 
                            'generating_code', 'validating', 'dry_running'];
             
-            // Start the pipeline animation
-            let stageIndex = 0;
-            const advanceInterval = setInterval(() => {
-                if (stageIndex < stages.length) {
-                    Pipeline.setStage(stages[stageIndex]);
-                    stageIndex++;
-                }
-            }, 400);
+            for (let i = 0; i < 3; i++) {
+                Pipeline.setStage(stages[i]);
+                await new Promise(r => setTimeout(r, 80));
+            }
 
             // Make API call
             const result = await API.processVoiceCommand(transcript, this.state.currentSheet);
 
-            clearInterval(advanceInterval);
+            for (let i = 3; i < stages.length; i++) {
+                Pipeline.setStage(stages[i]);
+                await new Promise(r => setTimeout(r, 60));
+            }
 
             this.state.pipelineResult = result;
 
@@ -309,7 +315,7 @@ const App = {
                 // Show approval bar
                 this._showApprovalBar(true);
 
-                this.showToast('Code generated! Review the diff and approve or reject.', 'info');
+                this.showToast('Code generated! Review the preview and click Approve & Execute.', 'info');
             }
 
             // Add to history display
@@ -347,6 +353,7 @@ const App = {
                 SchemaViewer.renderSchema(result.schema);
                 this._updateStatusIndicator('connected', `${result.schema.filename}`);
                 this._hideUploadZone();
+                this._showResetButton(true);
 
                 this.showToast(`Loaded ${file.name} — ${result.schema.sheets.length} sheet(s) found`, 'success');
             }
@@ -371,11 +378,37 @@ const App = {
                 SchemaViewer.renderSchema(result.schema);
                 this._updateStatusIndicator('connected', 'sample_tax_data.xlsx');
                 this._hideUploadZone();
+                this._showResetButton(true);
 
                 this.showToast('Sample tax data loaded! Try a voice command.', 'success');
             }
         } catch (error) {
             this.showToast(`Failed to load sample data: ${error.message}`, 'error');
+        }
+    },
+
+    /**
+     * Reset data back to original state.
+     */
+    async resetData() {
+        try {
+            this.showToast('Resetting data to original state...', 'info');
+            const result = await API.resetData();
+
+            if (result.success) {
+                if (result.schema) {
+                    SchemaViewer.renderSchema(result.schema);
+                }
+                CodeDisplay.clear();
+                DiffViewer.clear();
+                Pipeline.reset();
+                this._showApprovalBar(false);
+                this.state.pendingCode = null;
+
+                this.showToast(result.message || 'Data reset successfully', 'success');
+            }
+        } catch (error) {
+            this.showToast(`Reset failed: ${error.message}`, 'error');
         }
     },
 
@@ -404,12 +437,18 @@ const App = {
             this.showToast('Executing approved code...', 'info');
             Pipeline.complete();
 
-            const result = await API.executeCode(this.state.pendingCode);
+            const transcript = this.state.currentTranscript || '';
+            const result = await API.executeCode(this.state.pendingCode, 'pandas', transcript);
 
             if (result.success) {
                 this.showToast(result.message, 'success');
                 this._showApprovalBar(false);
                 this.state.pendingCode = null;
+
+                // Dynamically update schema if new columns were added
+                if (result.schema) {
+                    SchemaViewer.renderSchema(result.schema);
+                }
 
                 // Show execution result banner in code container
                 this._showExecutionResult(result);
@@ -568,6 +607,13 @@ const App = {
 
         container.innerHTML = html;
         container.style.display = 'block';
+    },
+
+    _showResetButton(show) {
+        const resetBtn = document.getElementById('btn-reset-data');
+        if (resetBtn) {
+            resetBtn.style.display = show ? 'inline-flex' : 'none';
+        }
     },
 
     _hideUploadZone() {

@@ -71,16 +71,23 @@ const API = {
     },
 
     // Execute Approved Code
-    async executeCode(code, language = 'pandas') {
+    async executeCode(code, language = 'pandas', transcript = '') {
         return this.request('/api/execute', {
             method: 'POST',
-            body: JSON.stringify({ code, language }),
+            body: JSON.stringify({ code, language, transcript }),
         });
     },
 
     // Reject Code
     async rejectCode() {
         return this.request('/api/reject', {
+            method: 'POST',
+        });
+    },
+
+    // Reset Data to original unmodified state
+    async resetData() {
+        return this.request('/api/reset-data', {
             method: 'POST',
         });
     },
