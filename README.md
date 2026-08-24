@@ -8,7 +8,9 @@ An AI-powered, voice-driven Excel macro builder for tax and accounting workflows
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](./LICENSE)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square)]()
 
-[Live Demo](YOUR_DEPLOYED_URL_HERE) <!-- Replace YOUR_DEPLOYED_URL_HERE with your deployed app URL -->
+[![Deployment](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=flat-square&logo=vercel)](https://vocalexcel.vercel.app)
+
+[Live Demo: vocalexcel.vercel.app](https://vocalexcel.vercel.app)
 
 ---
 
