@@ -76,6 +76,75 @@ function formatCellValue(val, colName) {
 function isNumericColumn(colName) {
   return /revenue|amount|tax|profit|gross|net|pct|rate|count|total|cost|price|id/i.test(colName);
 }
+// ---------------------------------------------------------------------------
+// VOCALEXCEL Vector Brand Logo Component (Exact Match to Brand Spec)
+// ---------------------------------------------------------------------------
+function VocalExcelLogo({ className = "h-7" }) {
+  return (
+    <svg
+      viewBox="0 0 256 30"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      style={{ height: '28px', width: 'auto' }}
+    >
+      {/* 1. Microphone Icon (0 to 22) */}
+      <g id="mic-icon">
+        <rect x="5.5" y="1.5" width="11" height="17" rx="5.5" fill="#322956" />
+        <line x1="12.5" y1="6.5" x2="16" y2="6.5" stroke="#F7F5F0" strokeWidth="1.6" strokeLinecap="round" />
+        <line x1="12.5" y1="10.5" x2="16" y2="10.5" stroke="#F7F5F0" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M 1.5 10.5 C 1.5 17 5 21 11 21 C 17 21 20.5 17 20.5 10.5" fill="none" stroke="#322956" strokeWidth="2.5" strokeLinecap="round" />
+        <path d="M 11 21 L 11 26" stroke="#322956" strokeWidth="2.5" strokeLinecap="round" />
+        <path d="M 6.5 26 L 15.5 26" stroke="#322956" strokeWidth="2.5" strokeLinecap="round" />
+      </g>
+
+      {/* 2. VOCAL Wordmark */}
+      <g id="vocal-wordmark" stroke="#8B5CF6" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" fill="none">
+        {/* V */}
+        <path d="M 30 5 L 38 25 L 46 5" />
+        
+        {/* O */}
+        <path d="M 60 6 A 9.8 9.8 0 0 0 60 24" />
+        <path d="M 64 6 A 9.8 9.8 0 0 1 64 24" />
+        
+        {/* C */}
+        <path d="M 98 5 L 88 5 A 10 10 0 0 0 88 25 L 98 25" />
+        
+        {/* A */}
+        <path d="M 104 25 L 112 5 L 120 25" />
+        <path d="M 108 18 L 116 18" />
+        
+        {/* L */}
+        <path d="M 126 5 L 126 25 L 140 25" />
+      </g>
+
+      {/* 3. EXCEL Wordmark */}
+      <g id="excel-wordmark" stroke="#322956" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" fill="none">
+        {/* E */}
+        <path d="M 148 5 L 148 25" />
+        <path d="M 152 5 L 162 5" />
+        <path d="M 152 15 L 160 15" />
+        <path d="M 152 25 L 162 25" />
+        
+        {/* X */}
+        <path d="M 168 5 L 184 25" />
+        <path d="M 184 5 L 168 25" />
+        
+        {/* C */}
+        <path d="M 210 5 L 200 5 A 10 10 0 0 0 200 25 L 210 25" />
+        
+        {/* E */}
+        <path d="M 216 5 L 216 25" />
+        <path d="M 220 5 L 230 5" />
+        <path d="M 220 15 L 228 15" />
+        <path d="M 220 25 L 230 25" />
+        
+        {/* L */}
+        <path d="M 236 5 L 236 25 L 250 25" />
+      </g>
+    </svg>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Main VoiceMacro Ledger Application
@@ -256,21 +325,7 @@ function VoiceMacroApp() {
   };
 
   // Voice Toggle
-  const handleToggleVoice = async () => {
-    if (!status.has_file && !workbook) {
-      showToast('Loading baseline sample ledger for voice dictation...', 'info');
-      try {
-        const res = await API.generateSampleData();
-        if (res.success) {
-          setWorkbook(res.schema);
-          setActiveSheet(res.schema.active_sheet || 'Tax_Data');
-          const dataRes = await API.getCurrentData();
-          setCurrentData(dataRes);
-          setRawOriginalData(dataRes.data || []);
-        }
-      } catch (e) {}
-    }
-
+  const handleToggleVoice = () => {
     const voiceEngine = window.Voice || (typeof Voice !== 'undefined' ? Voice : null);
     if (voiceEngine) {
       if (!voiceEngine.isSupported()) {
@@ -280,6 +335,20 @@ function VoiceMacroApp() {
       voiceEngine.toggle();
     } else {
       showToast('Voice engine initializing...', 'info');
+    }
+
+    // Load baseline data asynchronously if needed without blocking the mic activation
+    if (!status.has_file && !workbook) {
+      showToast('Loading baseline sample ledger for voice dictation...', 'info');
+      API.generateSampleData().then(async (res) => {
+        if (res.success) {
+          setWorkbook(res.schema);
+          setActiveSheet(res.schema.active_sheet || 'Tax_Data');
+          const dataRes = await API.getCurrentData();
+          setCurrentData(dataRes);
+          setRawOriginalData(dataRes.data || []);
+        }
+      }).catch(() => {});
     }
   };
 
@@ -405,8 +474,6 @@ function VoiceMacroApp() {
     return sheet?.columns || [];
   }, [workbook, activeSheet]);
 
-
-
   // Label columns vs Numeric columns split
   const columnCategories = useMemo(() => {
     const cols = (currentData.columns?.length > 0) ? currentData.columns :
@@ -423,19 +490,11 @@ function VoiceMacroApp() {
       {/* 1. TOP AUDIT NAVIGATION BAR                                        */}
       {/* ------------------------------------------------------------------ */}
       <header className="sticky top-0 z-30 bg-[#F7F5F0]/95 backdrop-blur-md border-b border-[#E2DED4] px-6 py-3 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded bg-[#0B0E14] text-[#C9A227] border border-[#C9A227]/40 flex items-center justify-center font-serif font-bold text-sm shadow-sm">
-            VM
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-serif font-bold text-[#0B0E14] text-base tracking-tight">VoiceMacro</span>
-              <span className="font-mono text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-[#EFECE6] text-[#6B7280] border border-[#E2DED4]">
-                Financial Ledger Edition
-              </span>
-            </div>
-            <p className="text-[11px] text-[#6B7280] font-mono tracking-tight">AST-Validated Macro Engine for Tax & Accounting</p>
-          </div>
+        <div>
+          <VocalExcelLogo className="h-7 mb-0.5" />
+          <p className="text-[11px] text-[#6B7280] font-mono tracking-tight">
+            AST-Validated Macro Engine for Tax & Accounting
+          </p>
         </div>
 
         {/* Navigation Action Badges */}
