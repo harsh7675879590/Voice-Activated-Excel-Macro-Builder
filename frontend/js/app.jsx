@@ -225,6 +225,20 @@ function VocalExcelApp() {
       }
     };
     window.addEventListener('keydown', handleKeyDown);
+
+    // Initial data and local history load
+    fetchStatus();
+    try {
+      const saved = localStorage.getItem('vocalexcel_audit_history');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setHistory(parsed);
+        }
+      }
+    } catch (e) {}
+    fetchHistory();
+
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
@@ -243,8 +257,18 @@ function VocalExcelApp() {
   const fetchHistory = async () => {
     try {
       const res = await API.getHistory();
-      if (res && res.history) {
-        setHistory(res.history);
+      if (res && res.history && res.history.length > 0) {
+        setHistory(prev => {
+          const mergedMap = new Map();
+          [...res.history, ...prev].forEach(item => {
+            if (item && (item.id || item.timestamp)) {
+              mergedMap.set(item.id || item.timestamp, item);
+            }
+          });
+          const merged = Array.from(mergedMap.values()).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          try { localStorage.setItem('vocalexcel_audit_history', JSON.stringify(merged.slice(0, 50))); } catch (e) {}
+          return merged;
+        });
       }
     } catch (e) {}
   };
@@ -327,6 +351,7 @@ function VocalExcelApp() {
         setExecutionResult(null);
         setCommandText('');
         setHistory([]);
+        try { localStorage.removeItem('vocalexcel_audit_history'); } catch (e) {}
         setStatus(prev => ({
           ...prev,
           status: 'ready',
@@ -350,11 +375,10 @@ function VocalExcelApp() {
     e?.stopPropagation();
     try {
       await API.clearHistory();
-      setHistory([]);
-      showToast('Command audit history cleared', 'info');
-    } catch (err) {
-      setHistory([]);
-    }
+    } catch (err) {}
+    setHistory([]);
+    try { localStorage.removeItem('vocalexcel_audit_history'); } catch (e) {}
+    showToast('Command audit history cleared', 'info');
   };
 
   // Voice Toggle
@@ -454,8 +478,25 @@ function VocalExcelApp() {
           setWorkbook(res.updated_schema || res.schema);
         }
         await fetchCurrentData();
+
+        // Immediately update history with complete record (persistent on Vercel)
+        const newEntry = res.history_entry || {
+          id: 'hist_' + Date.now(),
+          transcript: transcript || commandText || 'Executed macro',
+          intent_type: 'EXECUTED',
+          code: code,
+          was_executed: true,
+          timestamp: new Date().toISOString(),
+          result_summary: res.message || 'Transformation executed'
+        };
+
+        setHistory(prev => {
+          const updated = [newEntry, ...prev.filter(h => h.id !== newEntry.id)];
+          try { localStorage.setItem('vocalexcel_audit_history', JSON.stringify(updated.slice(0, 50))); } catch (e) {}
+          return updated;
+        });
+
         showToast('Approved & executed. Live financial ledger updated.', 'success');
-        fetchHistory();
       } else {
         showToast(res.message || 'Execution error', 'error');
       }

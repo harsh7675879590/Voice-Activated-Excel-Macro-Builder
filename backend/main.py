@@ -348,6 +348,11 @@ async def execute_approved_code(request: ExecuteRequest):
             )
             command_history.append(history_entry)
 
+            result_dict = result.model_dump()
+            result_dict["history_entry"] = history_entry.model_dump()
+            result_dict["history_entry"]["timestamp"] = history_entry.timestamp.isoformat()
+            return result_dict
+
         return result.model_dump()
 
     except Exception as e:
