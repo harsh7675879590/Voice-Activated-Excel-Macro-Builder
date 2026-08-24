@@ -8,9 +8,7 @@ An AI-powered, voice-driven Excel macro builder for tax and accounting workflows
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](./LICENSE)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square)]()
 
-[![Deployment](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=flat-square&logo=vercel)](https://vocalexcel.vercel.app)
-
-[Live Demo: vocalexcel.vercel.app](https://vocalexcel.vercel.app)
+Live Demo: [vocalexcel.vercel.app](https://vocalexcel.vercel.app)
 
 ---
 
@@ -42,27 +40,7 @@ Tax and accounting professionals spend dozens of hours every tax season manually
 
 ## System Architecture
 
-```mermaid
-flowchart TD
-    A[Voice Input / Text Command] --> B[STT Engine / Web Speech API]
-    B --> C[PII Redactor Layer]
-    C --> D[Intent Parser]
-    E[Excel Workbook] --> F[Schema Extractor]
-    F --> G[Schema Context Injection]
-    D --> G
-    G --> H{Execution Tier}
-    H -->|LLM Mode| I[Gemini API Code Generator]
-    H -->|Local Mode| J[Rule-Based Deterministic Engine]
-    I --> K[AST Safety Validator]
-    J --> K
-    K -->|Violation Detected| L[Safety Reject & Diagnostics]
-    K -->|Approved AST| M[Dry-Run Sandboxed Engine]
-    M --> N[Diff Engine & Delta Summary]
-    N --> O[User Approval Gate]
-    O -->|User Rejects| P[Abort / Rollback]
-    O -->|User Approves| Q[Execution Runtime]
-    Q --> R[Updated Workbook & Audit Log]
-```
+![Architecture Preview](./assets/Architecture.png)
 
 The execution flow begins when a user speaks or types a command into the **STT Engine / Web Speech API**. The transcript is scrubbed of sensitive identifiers by the **PII Redactor Layer** and normalized by the **Intent Parser**. Concurrently, the **Schema Extractor** inspects the loaded Excel workbook and performs **Schema Context Injection** (transmitting only column headers and data types, omitting raw rows). The prompt routes to either the **Gemini API Code Generator** or the offline **Rule-Based Deterministic Engine**. The output must pass through the **AST Safety Validator**, which denies any non-whitelisted function call. Validated code executes inside the **Dry-Run Sandboxed Engine**, producing an isolated before/after preview in the **Diff Engine & Delta Summary**. Finally, the **User Approval Gate** requires explicit confirmation before the **Execution Runtime** commits changes to the workbook and records the operation in the **Audit Log**.
 
@@ -178,42 +156,7 @@ Voice-Activated-Excel-Macro-Builder/
 
 ## How It Works (Data Flow)
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant Browser as Browser UI (React/Voice)
-    participant Server as Backend API (FastAPI)
-    participant Redactor as PII Redactor
-    participant Extractor as Schema Extractor
-    participant LLM as Google Gemini API
-    participant AST as AST Safety Validator
-    participant Sandbox as Dry-Run Engine
-
-    User->>Browser: Speaks voice command / types prompt
-    Browser->>Server: POST /api/pipeline/process (command + active workbook)
-    Server->>Extractor: Extract column names & inferred types
-    Extractor-->>Server: SchemaCard (0 raw rows transmitted)
-    Server->>Redactor: Mask SSNs, EINs, phone numbers, and names
-    Redactor-->>Server: RedactedPrompt & MaskMapping
-    Server->>LLM: Send system prompt + SchemaCard + RedactedPrompt
-    LLM-->>Server: Generated Pandas code snippet (JSON)
-    Server->>AST: Inspect code AST tree against whitelist
-    alt AST Validation Fails
-        AST-->>Server: ValidationViolation (Blocked call/attribute)
-        Server-->>Browser: Return 400 with security diagnostics
-    else AST Validation Passes
-        AST-->>Server: Whitelist Verified
-        Server->>Sandbox: Execute code against in-memory DataFrame copy
-        Sandbox-->>Server: DryRunResult (Kept rows, removed rows, modified cells)
-        Server-->>Browser: Return GeneratedCode + DryRunDiff
-        User->>Browser: Reviews code and inspects table preview
-        User->>Browser: Clicks "Approve & Execute"
-        Browser->>Server: POST /api/pipeline/execute (code + execution token)
-        Server->>Server: Apply mutation to baseline ledger & log to history
-        Server-->>Browser: Return updated workbook & success badge
-    end
-```
+![How It Works](./assets/Pipeline.png)
 
 ---
 
