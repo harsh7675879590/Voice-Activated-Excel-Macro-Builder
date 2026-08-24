@@ -71,20 +71,51 @@ const Voice = {
      * Start listening.
      */
     async start() {
+        // Re-initialize SpeechRecognition if needed
         if (!this.recognition) {
-            this.onStateChange('error', 'Speech recognition not supported in this browser');
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                this.recognition = new SpeechRecognition();
+                this.recognition.continuous = false;
+                this.recognition.interimResults = true;
+                this.recognition.lang = 'en-US';
+                this.recognition.maxAlternatives = 1;
+
+                this.recognition.onresult = (event) => this._handleResult(event);
+                this.recognition.onerror = (event) => this._handleError(event);
+                this.recognition.onend = () => this._handleEnd();
+                this.recognition.onstart = () => this._handleStart();
+            }
+        }
+
+        if (!this.recognition) {
+            if (this.onStateChange) {
+                this.onStateChange('error', 'Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
+            }
             return;
         }
 
         try {
-            // Start audio context for waveform
-            await this._startAudioCapture();
-            
-            // Start speech recognition
+            // Start speech recognition directly first
             this.recognition.start();
+            this.isListening = true;
+            if (this.onStateChange) {
+                this.onStateChange('listening');
+            }
+
+            // Start audio waveform in background without blocking
+            this._startAudioCapture().catch(() => {});
         } catch (error) {
-            console.error('Failed to start voice:', error);
-            this.onStateChange('error', error.message);
+            if (error.name === 'InvalidStateError') {
+                // Already started
+                this.isListening = true;
+                if (this.onStateChange) this.onStateChange('listening');
+            } else {
+                console.error('Failed to start voice recognition:', error);
+                if (this.onStateChange) {
+                    this.onStateChange('error', error.message || 'Microphone error');
+                }
+            }
         }
     },
 
@@ -92,10 +123,16 @@ const Voice = {
      * Stop listening.
      */
     stop() {
-        if (this.recognition && this.isListening) {
-            this.recognition.stop();
-        }
+        this.isListening = false;
+        try {
+            if (this.recognition) {
+                this.recognition.stop();
+            }
+        } catch (e) {}
         this._stopAudioCapture();
+        if (this.onStateChange) {
+            this.onStateChange('idle');
+        }
     },
 
     /**

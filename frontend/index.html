@@ -3,295 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Voice-Activated Excel Macro Builder — AI-powered voice-to-code pipeline for tax professionals. Transform voice commands into safe, validated Pandas operations.">
     <title>VoiceMacro — AI Excel Macro Builder</title>
+    <meta name="description" content="AI Excel Macro Builder for tax and business professionals. Transform spreadsheets using natural voice and text commands.">
 
-    <!-- Stylesheets -->
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#EEF2FF',
+                            100: '#E0E7FF',
+                            500: '#6366F1',
+                            600: '#4F46E5',
+                            700: '#4338CA',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
-    <link rel="stylesheet" href="/css/components.css">
-    <link rel="stylesheet" href="/css/animations.css">
 
-    <!-- Favicon -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+    <!-- React 18 & Babel Standalone -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body>
-    <div class="app-container">
-        <!-- ============================================================
-             HEADER
-             ============================================================ -->
-        <header class="app-header">
-            <div class="app-logo">
-                <div class="app-logo-icon">🎙️</div>
-                <div>
-                    <div class="app-logo-text">VoiceMacro</div>
-                    <div class="app-logo-subtitle">AI Excel Macro Builder</div>
-                </div>
-            </div>
-            <div class="header-right">
-                <div class="header-status">
-                    <span id="llm-badge" class="glass-card-badge" style="font-size: 10px;">Checking...</span>
-                </div>
-                <div class="header-status">
-                    <div id="status-dot" class="status-dot idle"></div>
-                    <span id="status-text">Connecting...</span>
-                </div>
-            </div>
-        </header>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased min-h-screen">
+    <!-- React Mount Root -->
+    <div id="root"></div>
 
-        <!-- ============================================================
-             MAIN CONTENT — 3-Column Layout
-             ============================================================ -->
-        <main class="app-main">
-            <!-- ========================================================
-                 LEFT PANEL — File Upload + Schema
-                 ======================================================== -->
-            <div class="panel panel-left">
-                <!-- Upload Section -->
-                <div id="upload-section" class="glass-card animate-in">
-                    <div class="glass-card-header">
-                        <span class="glass-card-title">
-                            <span class="icon">📂</span>
-                            Data Source
-                        </span>
-                    </div>
-                    <div id="upload-zone" class="upload-zone">
-                        <div class="upload-zone-icon">📊</div>
-                        <div class="upload-zone-text">Drop Excel file here</div>
-                        <div class="upload-zone-hint">.xlsx, .xls, .xlsm</div>
-                        <input type="file" id="file-input" accept=".xlsx,.xls,.xlsm">
-                    </div>
-                    <div style="text-align: center; margin-top: 12px;">
-                        <div style="font-size: 10px; color: var(--text-tertiary); margin-bottom: 8px;">— or —</div>
-                        <button id="btn-sample-data" class="btn btn-sm btn-primary">
-                            ⚡ Load Sample Tax Data
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Schema Section -->
-                <div class="glass-card animate-in animate-in-delay-1">
-                    <div class="glass-card-header">
-                        <span class="glass-card-title">
-                            <span class="icon">📋</span>
-                            Workbook Schema
-                        </span>
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            <button id="btn-reset-data" class="btn btn-sm" style="display: none; font-size: 10px; padding: 2px 8px;" title="Reset to original dataset">
-                                ↺ Reset Data
-                            </button>
-                            <span class="glass-card-badge" style="font-size: 9px;">PRIVACY-SAFE</span>
-                        </div>
-                    </div>
-                    <div id="schema-container">
-                        <div class="empty-state">
-                            <div class="empty-state-icon">📊</div>
-                            <div class="empty-state-text">Upload a file to see schema</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- History Section -->
-                <div class="glass-card animate-in animate-in-delay-2">
-                    <div class="glass-card-header">
-                        <span class="glass-card-title">
-                            <span class="icon">📜</span>
-                            Command History
-                        </span>
-                    </div>
-                    <div id="history-list" style="max-height: 200px; overflow-y: auto;">
-                        <div class="empty-state">
-                            <div class="empty-state-icon">📜</div>
-                            <div class="empty-state-text">No commands yet</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ========================================================
-                 CENTER PANEL — Voice Interface + Pipeline
-                 ======================================================== -->
-            <div class="panel panel-center">
-                <!-- Voice Orb -->
-                <div class="glass-card animate-in" style="padding: 24px 16px;">
-                    <div class="voice-orb-container">
-                        <div class="voice-orb-wrapper">
-                            <div class="orb-ring orb-ring-1"></div>
-                            <div class="orb-ring orb-ring-2"></div>
-                            <div id="voice-orb" class="voice-orb" title="Click to start listening (or press Space)">
-                                🎤
-                            </div>
-                        </div>
-                        <div id="voice-label" class="voice-orb-label">
-                            Click to speak or press Space
-                        </div>
-                        <div class="voice-waveform">
-                            <canvas id="waveform-canvas"></canvas>
-                        </div>
-                    </div>
-
-                    <!-- Transcript Display -->
-                    <div id="transcript-display" class="transcript-display empty">
-                        Your voice command will appear here...
-                    </div>
-
-                    <!-- Text Command Input (alternative) -->
-                    <div style="display: flex; gap: 8px; margin-top: 12px;">
-                        <input type="text" id="text-command-input" 
-                               class="text-input"
-                               placeholder="Or type a command... e.g., 'Filter revenue above 50000'"
-                               style="flex: 1; padding: 10px 14px; background: var(--glass-bg); 
-                                      border: 1px solid var(--glass-border); border-radius: var(--radius-md);
-                                      color: var(--text-primary); font-family: var(--font-sans); 
-                                      font-size: var(--font-size-sm); outline: none;
-                                      transition: border-color var(--transition-fast);">
-                        <button id="btn-send-command" class="btn btn-primary btn-icon" title="Send command"
-                                style="width: 40px; height: 40px; font-size: 16px;">
-                            ➤
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Pipeline Visualization -->
-                <div class="glass-card animate-in animate-in-delay-1">
-                    <div class="glass-card-header">
-                        <span class="glass-card-title">
-                            <span class="icon">⚙️</span>
-                            Pipeline Progress
-                        </span>
-                    </div>
-                    <div id="pipeline-container" class="pipeline-container"></div>
-                </div>
-
-                <!-- PII Redaction Info -->
-                <div id="redaction-info" class="glass-card" style="display: none;">
-                </div>
-
-                <!-- Diff Viewer -->
-                <div class="glass-card animate-in animate-in-delay-2" style="flex: 1; min-height: 0;">
-                    <div class="glass-card-header">
-                        <span class="glass-card-title">
-                            <span class="icon">📋</span>
-                            Data Preview
-                        </span>
-                    </div>
-                    <div id="diff-container">
-                        <div class="empty-state">
-                            <div class="empty-state-icon">📋</div>
-                            <div class="empty-state-text">Data diff preview will appear here</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ========================================================
-                 RIGHT PANEL — Code + Validation + Actions
-                 ======================================================== -->
-            <div class="panel panel-right">
-                <!-- Generated Code -->
-                <div class="glass-card animate-in">
-                    <div class="glass-card-header">
-                        <span class="glass-card-title">
-                            <span class="icon">⚡</span>
-                            Generated Code
-                        </span>
-                        <span class="glass-card-badge">AST VALIDATED</span>
-                    </div>
-                    <div id="code-container">
-                        <div class="empty-state">
-                            <div class="empty-state-icon">⚡</div>
-                            <div class="empty-state-text">Generated code will appear here</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Approval Bar -->
-                <div id="approval-bar" class="approval-bar glass-card" style="display: none;">
-                    <div class="approval-message">
-                        🧪 Dry-run complete. Review changes and decide:
-                    </div>
-                    <div class="approval-actions">
-                        <button id="btn-approve" class="btn btn-success">
-                            ✅ Approve & Execute
-                        </button>
-                        <button id="btn-reject" class="btn btn-danger">
-                            ✗ Reject
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Security Info -->
-                <div class="glass-card animate-in animate-in-delay-2">
-                    <div class="glass-card-header">
-                        <span class="glass-card-title">
-                            <span class="icon">🛡️</span>
-                            Security Guardrails
-                        </span>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
-                        <div class="validation-result safe" style="padding: 8px 12px;">
-                            <span>🔒</span>
-                            <span>Schema-only transmission — no raw cell data leaves your machine</span>
-                        </div>
-                        <div class="validation-result safe" style="padding: 8px 12px;">
-                            <span>🧪</span>
-                            <span>Dry-run sandbox — code tested on cloned data first</span>
-                        </div>
-                        <div class="validation-result safe" style="padding: 8px 12px;">
-                            <span>🛡️</span>
-                            <span>AST whitelist — only safe Pandas ops permitted</span>
-                        </div>
-                        <div class="validation-result safe" style="padding: 8px 12px;">
-                            <span>🔐</span>
-                            <span>PII redaction — sensitive data never sent to LLM</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Quick Commands -->
-                <div class="glass-card animate-in animate-in-delay-3">
-                    <div class="glass-card-header">
-                        <span class="glass-card-title">
-                            <span class="icon">💡</span>
-                            Try These Commands
-                        </span>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 6px;">
-                        <button class="btn btn-sm" style="justify-content: flex-start; text-align: left;" 
-                                onclick="document.getElementById('text-command-input').value='Filter revenue above 50000'; document.getElementById('btn-send-command').click();">
-                            "Filter revenue above 50000"
-                        </button>
-                        <button class="btn btn-sm" style="justify-content: flex-start; text-align: left;"
-                                onclick="document.getElementById('text-command-input').value='Group by state and sum the revenue'; document.getElementById('btn-send-command').click();">
-                            "Group by state and sum the revenue"
-                        </button>
-                        <button class="btn btn-sm" style="justify-content: flex-start; text-align: left;"
-                                onclick="document.getElementById('text-command-input').value='Sort by tax amount descending'; document.getElementById('btn-send-command').click();">
-                            "Sort by tax amount descending"
-                        </button>
-                        <button class="btn btn-sm" style="justify-content: flex-start; text-align: left;"
-                                onclick="document.getElementById('text-command-input').value='Show top 5 clients by gross revenue'; document.getElementById('btn-send-command').click();">
-                            "Show top 5 clients by gross revenue"
-                        </button>
-                        <button class="btn btn-sm" style="justify-content: flex-start; text-align: left;"
-                                onclick="document.getElementById('text-command-input').value='Calculate percentage of net revenue'; document.getElementById('btn-send-command').click();">
-                            "Calculate percentage of net revenue"
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </main>
-    </div>
-
-    <!-- Toast Container -->
-    <div id="toast-container" class="toast-container"></div>
-
-    <!-- Scripts -->
+    <!-- Application Scripts -->
     <script src="/js/api.js"></script>
     <script src="/js/voice.js"></script>
-    <script src="/js/pipeline.js"></script>
-    <script src="/js/schema-viewer.js"></script>
-    <script src="/js/code-display.js"></script>
-    <script src="/js/diff-viewer.js"></script>
-    <script src="/js/app.js"></script>
+    <script type="text/babel" src="/js/app.jsx"></script>
 </body>
 </html>
