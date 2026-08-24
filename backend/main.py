@@ -18,7 +18,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket
+from fastapi import APIRouter, FastAPI, File, HTTPException, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -108,10 +108,13 @@ if FRONTEND_DIR.exists():
 
 
 # ---------------------------------------------------------------------------
-# API Endpoints
+# API Endpoints Router (Mounted on both /api and root for Vercel Serverless)
 # ---------------------------------------------------------------------------
 
-@app.get("/api/status")
+api_router = APIRouter()
+
+
+@api_router.get("/status")
 async def get_status():
     """Return current application state."""
     return {
@@ -124,7 +127,7 @@ async def get_status():
     }
 
 
-@app.post("/api/upload-excel")
+@api_router.post("/upload-excel")
 async def upload_excel(file: UploadFile = File(...)):
     """
     Upload an Excel file and extract its schema.
@@ -164,7 +167,7 @@ async def upload_excel(file: UploadFile = File(...)):
         raise HTTPException(500, f"Failed to process file: {str(e)}")
 
 
-@app.post("/api/set-active-sheet")
+@api_router.post("/set-active-sheet")
 async def set_active_sheet(request: dict):
     """Switch the active sheet for operations."""
     global current_sheet, current_df, original_df
@@ -190,7 +193,7 @@ async def set_active_sheet(request: dict):
     }
 
 
-@app.post("/api/process-voice")
+@api_router.post("/process-voice")
 async def process_voice_command(request: VoiceCommandRequest):
     """
     Main pipeline endpoint: transcript → intent → schema → code → validate → dry-run.
@@ -299,7 +302,7 @@ async def process_voice_command(request: VoiceCommandRequest):
         ).model_dump()
 
 
-@app.post("/api/execute")
+@api_router.post("/execute")
 async def execute_approved_code(request: ExecuteRequest):
     """
     Execute user-approved code against the live DataFrame.
@@ -352,7 +355,7 @@ async def execute_approved_code(request: ExecuteRequest):
         raise HTTPException(500, f"Execution failed: {str(e)}")
 
 
-@app.post("/api/reject")
+@api_router.post("/reject")
 async def reject_code():
     """Reject the pending code — no changes applied."""
     global pending_code, pending_transcript
@@ -361,7 +364,7 @@ async def reject_code():
     return {"success": True, "message": "Changes rejected — no modifications made"}
 
 
-@app.post("/api/reset-data")
+@api_router.post("/reset-data")
 async def reset_data():
     """Complete app reset: Wipe all history, delete executed commands, and reset whole app to sample_tax_data.xlsx."""
     global current_df, original_df, current_file, current_sheet, command_history, pending_code, pending_transcript
@@ -374,7 +377,7 @@ async def reset_data():
     return await generate_sample_data()
 
 
-@app.post("/api/clear-history")
+@api_router.post("/clear-history")
 async def clear_history():
     """Clear all command execution history."""
     global command_history
@@ -382,7 +385,7 @@ async def clear_history():
     return {"success": True, "message": "Command history cleared"}
 
 
-@app.get("/api/history")
+@api_router.get("/history")
 async def get_history():
     """Return command execution history for the audit trail."""
     return {
@@ -391,7 +394,7 @@ async def get_history():
     }
 
 
-@app.get("/api/current-data")
+@api_router.get("/current-data")
 async def get_current_data():
     """Return a preview of the current DataFrame state."""
     if current_df is None:
@@ -417,7 +420,7 @@ async def get_current_data():
     }
 
 
-@app.post("/api/generate-sample")
+@api_router.post("/generate-sample")
 async def generate_sample_data():
     """
     Generate a sample tax dataset for demo purposes.
@@ -522,6 +525,11 @@ async def generate_sample_data():
             active_sheet=current_sheet,
         ).model_dump(),
     }
+
+
+# Mount the API router on both /api (standard) and root (Vercel Serverless Function)
+app.include_router(api_router, prefix="/api")
+app.include_router(api_router)
 
 
 # ---------------------------------------------------------------------------
