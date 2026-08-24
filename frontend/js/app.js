@@ -446,8 +446,9 @@ const App = {
                 this.state.pendingCode = null;
 
                 // Dynamically update schema if new columns were added
-                if (result.schema) {
-                    SchemaViewer.renderSchema(result.schema);
+                const newSchema = result.updated_schema || result.schema;
+                if (newSchema) {
+                    SchemaViewer.renderSchema(newSchema);
                 }
 
                 // Show execution result banner in code container
