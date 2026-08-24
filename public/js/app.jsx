@@ -512,11 +512,12 @@ function VocalExcelApp() {
         }
         await fetchCurrentData();
 
-        // Immediately update history with complete record (persistent on Vercel)
-        const newEntry = res.history_entry || {
+        // Immediately update history: replace simulated entry with executed entry
+        const executedEntry = {
           id: 'hist_' + Date.now(),
           transcript: transcript || commandText || 'Executed macro',
           intent_type: 'EXECUTED',
+          status: 'EXECUTED',
           code: code,
           was_executed: true,
           timestamp: new Date().toISOString(),
@@ -524,7 +525,9 @@ function VocalExcelApp() {
         };
 
         setHistory(prev => {
-          const updated = [newEntry, ...prev.filter(h => h.id !== newEntry.id)];
+          const normTranscript = executedEntry.transcript.trim().toLowerCase();
+          const filtered = prev.filter(h => h.transcript?.trim().toLowerCase() !== normTranscript);
+          const updated = [executedEntry, ...filtered];
           try { localStorage.setItem('vocalexcel_audit_history', JSON.stringify(updated.slice(0, 50))); } catch (e) {}
           return updated;
         });
