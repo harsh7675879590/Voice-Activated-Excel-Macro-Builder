@@ -206,7 +206,7 @@ class ExecutionResult(BaseModel):
     rows_affected: int = 0
     message: str
     result_preview: list[dict] = Field(default_factory=list)
-    schema: Optional[WorkbookSchema] = None
+    updated_schema: Optional[WorkbookSchema] = None
 
 
 class HistoryEntry(BaseModel):

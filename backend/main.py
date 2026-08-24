@@ -326,7 +326,7 @@ async def execute_approved_code(request: ExecuteRequest):
             updated_schema = None
             if current_file and current_sheet:
                 updated_schema = schema_extractor.update_sheet_dataframe(current_file, current_sheet, current_df)
-                result.schema = updated_schema
+                result.updated_schema = updated_schema
 
             # Log to history
             transcript_text = request.transcript or pending_transcript or "Executed operation"
