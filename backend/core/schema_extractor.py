@@ -135,9 +135,12 @@ class SchemaExtractor:
             sample = series.dropna().head(self.SAMPLE_ROWS)
             if len(sample) > 0:
                 try:
-                    pd.to_datetime(sample, errors="raise")
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        pd.to_datetime(sample, errors="raise", format="mixed")
                     return "datetime64"
-                except (ValueError, TypeError):
+                except Exception:
                     pass
                 # Check if numeric strings
                 try:
