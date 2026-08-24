@@ -351,3 +351,7 @@ const Voice = {
         this.waveformCanvas.style.height = container.clientHeight + 'px';
     },
 };
+
+// Explicitly attach to window for global access
+window.Voice = Voice;
+

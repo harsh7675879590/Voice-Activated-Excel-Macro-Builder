@@ -99,8 +99,9 @@ function VoiceMacroApp() {
     fetchHistory();
 
     // Voice setup
-    if (window.Voice) {
-      Voice.init({
+    const voiceEngine = window.Voice || (typeof Voice !== 'undefined' ? Voice : null);
+    if (voiceEngine) {
+      voiceEngine.init({
         onTranscript: (text) => {
           setIsListening(false);
           setInterimTranscript('');
@@ -222,13 +223,29 @@ function VoiceMacroApp() {
   };
 
   // Voice Toggle
-  const handleToggleVoice = () => {
+  const handleToggleVoice = async () => {
+    // If no dataset loaded, auto-load sample data first
     if (!status.has_file && !workbook) {
-      showToast('Please load sample data or upload an Excel file first', 'warning');
-      return;
+      showToast('Loading sample dataset for voice command...', 'info');
+      try {
+        const res = await API.generateSampleData();
+        if (res.success) {
+          setWorkbook(res.schema);
+          setActiveSheet(res.schema.active_sheet || 'Tax_Data');
+          await fetchCurrentData();
+        }
+      } catch (e) {}
     }
-    if (window.Voice) {
-      Voice.toggle();
+
+    const voiceEngine = window.Voice || (typeof Voice !== 'undefined' ? Voice : null);
+    if (voiceEngine) {
+      if (!voiceEngine.isSupported()) {
+        showToast('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.', 'warning');
+        return;
+      }
+      voiceEngine.toggle();
+    } else {
+      showToast('Voice engine initializing...', 'info');
     }
   };
 
@@ -633,11 +650,41 @@ function VoiceMacroApp() {
               </div>
             </div>
 
-            {/* Interim Transcript preview when speaking */}
-            {isListening && interimTranscript && (
-              <div className="mt-2 text-xs font-medium text-indigo-600 flex items-center gap-1.5 px-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-ping"></span>
-                <span>"{interimTranscript}"</span>
+            {/* Active Voice Recording Bar */}
+            {isListening && (
+              <div className="mt-3 p-3 rounded-xl bg-red-50 border border-red-200 flex items-center justify-between animate-toast">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-3">
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping"></span>
+                    <span className="text-[11px] font-bold text-red-700 uppercase tracking-wide">Listening:</span>
+                  </div>
+                  <span className="text-xs text-slate-800 font-medium truncate">
+                    {interimTranscript ? `"${interimTranscript}"` : "Speak your transformation into microphone..."}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={() => {
+                      if (interimTranscript) {
+                        setCommandText(interimTranscript);
+                        handleRunCommand(interimTranscript);
+                      }
+                      if (window.Voice) Voice.stop();
+                    }}
+                    className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
+                  >
+                    Done & Run
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (window.Voice) Voice.stop();
+                      setInterimTranscript('');
+                    }}
+                    className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-600 rounded-lg text-xs font-medium border border-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
 
