@@ -405,33 +405,7 @@ function VoiceMacroApp() {
     return sheet?.columns || [];
   }, [workbook, activeSheet]);
 
-  // Comprehensive Diff Computation (Kept vs Excluded Rows for Signature Diff View)
-  const diffComparisonRows = useMemo(() => {
-    if (!pipelineResult || !pipelineResult.diff) return null;
-    const previewAfter = pipelineResult.diff.preview_after || [];
-    
-    // If we have baseline original rows and preview rows, match by key (e.g. Client_Name or row index)
-    if (rawOriginalData.length > 0 && previewAfter.length > 0) {
-      const afterKeySet = new Set(previewAfter.map(r => r.Client_Name || JSON.stringify(r)));
-      
-      // If preview_after contains rows with 'Client_Name', we can reconstruct the full ledger
-      const hasClientName = previewAfter[0] && 'Client_Name' in previewAfter[0];
-      if (hasClientName) {
-        return rawOriginalData.map(rawRow => {
-          const isKept = afterKeySet.has(rawRow.Client_Name);
-          // Check if modified in after
-          const matchedAfter = previewAfter.find(a => a.Client_Name === rawRow.Client_Name);
-          return {
-            row: matchedAfter || rawRow,
-            status: isKept ? 'KEPT' : 'EXCLUDED',
-          };
-        });
-      }
-    }
 
-    // Fallback: return preview_after as KEPT
-    return previewAfter.map(r => ({ row: r, status: 'KEPT' }));
-  }, [pipelineResult, rawOriginalData]);
 
   // Label columns vs Numeric columns split
   const columnCategories = useMemo(() => {
@@ -891,49 +865,44 @@ function VoiceMacroApp() {
                 </div>
               )}
 
-              {/* 4. Signature Diff View (Kept Rows vs Excluded Strikethrough Rows) */}
+              {/* 4. Transformed Data Preview */}
               <div className="p-4 flex-1">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 gap-2">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#6B7280]">
-                      Ledger Simulation Diff
+                      Transformed Ledger Preview
                     </span>
                     
                     {pipelineResult.diff && (
                       <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold">
-                        {pipelineResult.diff.rows_removed > 0 && (
-                          <span className="px-2 py-0.5 rounded bg-[#1B4332]/10 text-[#1B4332] border border-[#1B4332]/30">
-                            {pipelineResult.diff.total_rows_after} Matched
-                          </span>
-                        )}
+                        <span className="px-2 py-0.5 rounded bg-[#1B4332]/10 text-[#1B4332] border border-[#1B4332]/30">
+                          {pipelineResult.diff.total_rows_after} Resulting Rows
+                        </span>
                         {pipelineResult.diff.rows_removed > 0 && (
                           <span className="px-2 py-0.5 rounded bg-[#8B1E1E]/10 text-[#8B1E1E] border border-[#8B1E1E]/30">
-                            {pipelineResult.diff.rows_removed} Excluded
+                            -{pipelineResult.diff.rows_removed} Filtered Out
                           </span>
                         )}
                         {pipelineResult.diff.cells_modified > 0 && (
                           <span className="px-2 py-0.5 rounded bg-[#FAF5E8] text-[#C9A227] border border-[#C9A227]/40">
-                            Δ {pipelineResult.diff.cells_modified} Cells Modified
+                            Δ {pipelineResult.diff.cells_modified} Modified
                           </span>
                         )}
                       </div>
                     )}
                   </div>
                   <span className="font-mono text-[11px] text-[#6B7280]">
-                    [Green = Retained In Filter · Strikethrough = Excluded]
+                    Showing top {Math.min(pipelineResult.diff?.preview_after?.length || 0, 25)} records
                   </span>
                 </div>
 
-                {/* 2. Data Table: Right-Aligned Tabular Numbers & Vertical Hairlines */}
+                {/* 4. Clean Data Preview Table (Directly showing resulting filtered/transformed rows) */}
                 <div className="border border-[#E2DED4] rounded overflow-x-auto max-h-[380px]">
                   <table className="w-full text-xs border-collapse">
                     <thead className="bg-[#EFECE6] text-[#0B0E14] font-mono text-[11px] sticky top-0 border-b border-[#E2DED4] z-10">
                       <tr>
                         <th className="p-2.5 w-12 text-center text-[#6B7280] font-bold ledger-hairline-r">
-                          LINE #
-                        </th>
-                        <th className="p-2.5 w-16 text-center text-[#6B7280] font-bold ledger-hairline-r">
-                          AUDIT
+                          #
                         </th>
                         
                         {/* Label Columns (Left-Aligned) */}
@@ -958,29 +927,15 @@ function VoiceMacroApp() {
                     </thead>
 
                     <tbody className="divide-y divide-[#E2DED4] font-mono text-xs">
-                      {(diffComparisonRows || []).slice(0, 25).map((item, rIdx) => {
-                        const isKept = item.status === 'KEPT';
-                        const row = item.row;
-
+                      {(pipelineResult.diff?.preview_after || []).slice(0, 25).map((row, rIdx) => {
                         return (
                           <tr
                             key={rIdx}
-                            className={`transition-colors ${
-                              isKept ? 'ledger-row-kept' : 'ledger-row-excluded'
-                            }`}
+                            className="hover:bg-[#F7F5F0] transition-colors"
                           >
                             {/* Row Index */}
                             <td className="p-2 text-center text-[#6B7280] font-mono tabular-nums ledger-hairline-r">
                               {rIdx + 1}
-                            </td>
-
-                            {/* Audit Status Tag */}
-                            <td className="p-2 text-center font-mono text-[10px] font-bold ledger-hairline-r">
-                              {isKept ? (
-                                <span className="text-[#1B4332]">KEPT</span>
-                              ) : (
-                                <span className="text-[#8B1E1E]">EXCL</span>
-                              )}
                             </td>
 
                             {/* Label Columns (Left-Aligned) */}
