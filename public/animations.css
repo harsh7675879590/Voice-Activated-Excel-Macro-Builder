@@ -1,0 +1,343 @@
+/* ============================================================================
+   VOICE MACRO BUILDER — Animations & Micro-interactions
+   Keyframes, transitions, and dynamic effects
+   ============================================================================ */
+
+/* --------------------------------------------------------------------------
+   Voice Orb Animations
+   -------------------------------------------------------------------------- */
+@keyframes orb-pulse {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow:
+            0 0 40px rgba(0, 212, 255, 0.3),
+            0 0 80px rgba(0, 212, 255, 0.15),
+            0 0 120px rgba(0, 212, 255, 0.05),
+            inset 0 0 30px rgba(0, 212, 255, 0.15);
+    }
+    50% {
+        transform: scale(1.06);
+        box-shadow:
+            0 0 50px rgba(0, 212, 255, 0.4),
+            0 0 100px rgba(0, 212, 255, 0.2),
+            0 0 150px rgba(0, 212, 255, 0.08),
+            inset 0 0 40px rgba(0, 212, 255, 0.2);
+    }
+}
+
+@keyframes orb-process {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow:
+            0 0 40px rgba(123, 47, 247, 0.3),
+            0 0 80px rgba(123, 47, 247, 0.15),
+            inset 0 0 30px rgba(123, 47, 247, 0.15);
+    }
+    50% {
+        transform: scale(1.04);
+        box-shadow:
+            0 0 50px rgba(123, 47, 247, 0.4),
+            0 0 100px rgba(123, 47, 247, 0.2),
+            inset 0 0 40px rgba(123, 47, 247, 0.2);
+    }
+}
+
+@keyframes ring-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* --------------------------------------------------------------------------
+   Pipeline Animations
+   -------------------------------------------------------------------------- */
+@keyframes node-pulse {
+    0%, 100% {
+        box-shadow: 0 0 10px rgba(0, 212, 255, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(0, 212, 255, 0.4), 0 0 40px rgba(0, 212, 255, 0.1);
+    }
+}
+
+@keyframes connector-flow {
+    0% {
+        background-position: 0% 50%;
+    }
+    100% {
+        background-position: 200% 50%;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   Status Dot
+   -------------------------------------------------------------------------- */
+@keyframes pulse-dot {
+    0%, 100% {
+        opacity: 1;
+        box-shadow: 0 0 4px currentColor;
+    }
+    50% {
+        opacity: 0.6;
+        box-shadow: 0 0 8px currentColor, 0 0 16px currentColor;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   Toast Animation
+   -------------------------------------------------------------------------- */
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateX(40px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+@keyframes toast-out {
+    from {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(40px) scale(0.95);
+    }
+}
+
+/* --------------------------------------------------------------------------
+   Spinner
+   -------------------------------------------------------------------------- */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* --------------------------------------------------------------------------
+   Fade & Slide
+   -------------------------------------------------------------------------- */
+@keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fade-in-down {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slide-in-left {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slide-in-right {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes scale-in {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* --------------------------------------------------------------------------
+   Shimmer / Loading
+   -------------------------------------------------------------------------- */
+@keyframes shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+.loading-shimmer {
+    background: linear-gradient(
+        90deg,
+        var(--glass-bg) 25%,
+        rgba(255, 255, 255, 0.06) 50%,
+        var(--glass-bg) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* --------------------------------------------------------------------------
+   Waveform Animation
+   -------------------------------------------------------------------------- */
+@keyframes wave-bar {
+    0%, 100% { transform: scaleY(0.3); }
+    50% { transform: scaleY(1); }
+}
+
+.wave-bar {
+    display: inline-block;
+    width: 3px;
+    height: 20px;
+    background: var(--accent-primary);
+    margin: 0 1px;
+    border-radius: 2px;
+    animation: wave-bar 1.2s ease-in-out infinite;
+    transform-origin: bottom;
+}
+
+.wave-bar:nth-child(1) { animation-delay: 0s; }
+.wave-bar:nth-child(2) { animation-delay: 0.1s; }
+.wave-bar:nth-child(3) { animation-delay: 0.2s; }
+.wave-bar:nth-child(4) { animation-delay: 0.3s; }
+.wave-bar:nth-child(5) { animation-delay: 0.4s; }
+.wave-bar:nth-child(6) { animation-delay: 0.3s; }
+.wave-bar:nth-child(7) { animation-delay: 0.2s; }
+
+/* --------------------------------------------------------------------------
+   Glow Border Animation
+   -------------------------------------------------------------------------- */
+@keyframes border-glow {
+    0%, 100% {
+        border-color: rgba(0, 212, 255, 0.2);
+    }
+    50% {
+        border-color: rgba(0, 212, 255, 0.5);
+    }
+}
+
+.glow-border {
+    animation: border-glow 2s ease-in-out infinite;
+}
+
+/* --------------------------------------------------------------------------
+   Data Flow Particle Effect
+   -------------------------------------------------------------------------- */
+@keyframes particle-flow {
+    0% {
+        opacity: 0;
+        transform: translateX(0) scale(0);
+    }
+    20% {
+        opacity: 1;
+        transform: translateX(20%) scale(1);
+    }
+    80% {
+        opacity: 1;
+        transform: translateX(80%) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(100%) scale(0);
+    }
+}
+
+/* --------------------------------------------------------------------------
+   Stagger Animation Classes
+   -------------------------------------------------------------------------- */
+.animate-in {
+    animation: fade-in-up 0.4s ease-out both;
+}
+
+.animate-in-delay-1 { animation-delay: 0.05s; }
+.animate-in-delay-2 { animation-delay: 0.1s; }
+.animate-in-delay-3 { animation-delay: 0.15s; }
+.animate-in-delay-4 { animation-delay: 0.2s; }
+.animate-in-delay-5 { animation-delay: 0.25s; }
+.animate-in-delay-6 { animation-delay: 0.3s; }
+.animate-in-delay-7 { animation-delay: 0.35s; }
+.animate-in-delay-8 { animation-delay: 0.4s; }
+
+/* --------------------------------------------------------------------------
+   Hover Micro-interactions
+   -------------------------------------------------------------------------- */
+.hover-lift {
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.hover-glow {
+    transition: box-shadow var(--transition-base);
+}
+
+.hover-glow:hover {
+    box-shadow: var(--shadow-glow-cyan);
+}
+
+/* --------------------------------------------------------------------------
+   Typing Animation (for transcript)
+   -------------------------------------------------------------------------- */
+@keyframes blink-cursor {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+.typing-cursor::after {
+    content: '|';
+    color: var(--accent-primary);
+    animation: blink-cursor 1s step-end infinite;
+    margin-left: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   Success Checkmark
+   -------------------------------------------------------------------------- */
+@keyframes checkmark-draw {
+    0% { stroke-dashoffset: 20; }
+    100% { stroke-dashoffset: 0; }
+}
+
+/* --------------------------------------------------------------------------
+   Ripple effect for buttons
+   -------------------------------------------------------------------------- */
+.btn::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at var(--ripple-x, 50%) var(--ripple-y, 50%), 
+                rgba(255, 255, 255, 0.15) 0%, transparent 60%);
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+}
+
+.btn:active::after {
+    opacity: 1;
+}
