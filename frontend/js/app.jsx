@@ -272,7 +272,10 @@ function VoiceMacroApp() {
         setRawOriginalData(dataRes.data || []);
         setPipelineResult(null);
         setExecutionResult(null);
-        showToast('Sample tax ledger loaded (15 accounts, 8 attributes)', 'success');
+        setCommandText('');
+        setHistory([]);
+        setStatus(prev => ({ ...prev, has_file: true, current_file: 'sample_tax_data.xlsx' }));
+        showToast('Reset to default sample tax ledger (0 queries executed)', 'success');
       }
     } catch (e) {
       showToast(`Failed to load sample data: ${e.message}`, 'error');
@@ -297,6 +300,9 @@ function VoiceMacroApp() {
         setRawOriginalData(dataRes.data || []);
         setPipelineResult(null);
         setExecutionResult(null);
+        setCommandText('');
+        setHistory([]);
+        setStatus(prev => ({ ...prev, has_file: true, current_file: file.name }));
         showToast(`Workbook '${file.name}' verified and loaded`, 'success');
       }
     } catch (err) {
@@ -306,21 +312,48 @@ function VoiceMacroApp() {
     }
   };
 
-  // Reset Data
+  // Reset Data (Full Clean Slate: Reset to default sample_tax_data.xlsx and clear all history)
   const handleResetData = async () => {
+    setIsProcessing(true);
     try {
       const res = await API.resetData();
       if (res.success) {
-        if (res.schema) setWorkbook(res.schema);
+        setWorkbook(res.schema);
+        setActiveSheet(res.schema.active_sheet || 'Tax_Data');
         const dataRes = await API.getCurrentData();
         setCurrentData(dataRes);
         setRawOriginalData(dataRes.data || []);
         setPipelineResult(null);
         setExecutionResult(null);
-        showToast('Workbook restored to original baseline ledger', 'success');
+        setCommandText('');
+        setHistory([]);
+        setStatus(prev => ({
+          ...prev,
+          status: 'ready',
+          has_file: true,
+          current_file: 'sample_tax_data.xlsx',
+          current_sheet: 'Tax_Data',
+          history_count: 0
+        }));
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        showToast('Whole app reset to default sample file (All commands cleared)', 'success');
       }
     } catch (err) {
       showToast(`Reset failed: ${err.message}`, 'error');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Clear History
+  const handleClearHistory = async (e) => {
+    e?.stopPropagation();
+    try {
+      await API.clearHistory();
+      setHistory([]);
+      showToast('Command audit history cleared', 'info');
+    } catch (err) {
+      setHistory([]);
     }
   };
 
@@ -644,9 +677,20 @@ function VoiceMacroApp() {
               <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
                 Command Audit Trail
               </span>
-              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[#EFECE6] text-[#0B0E14] font-bold">
-                {history.length}
-              </span>
+              <div className="flex items-center gap-1.5">
+                {history.length > 0 && (
+                  <button
+                    onClick={handleClearHistory}
+                    className="font-mono text-[9px] text-[#6B7280] hover:text-[#8B1E1E] px-1 rounded hover:bg-[#FDF2F2] transition-colors"
+                    title="Clear history log"
+                  >
+                    [Clear]
+                  </button>
+                )}
+                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[#EFECE6] text-[#0B0E14] font-bold">
+                  {history.length}
+                </span>
+              </div>
             </div>
 
             {history.length > 0 ? (

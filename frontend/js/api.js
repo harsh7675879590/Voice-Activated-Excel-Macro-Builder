@@ -92,6 +92,13 @@ const API = {
         });
     },
 
+    // Clear History
+    async clearHistory() {
+        return this.request('/api/clear-history', {
+            method: 'POST',
+        });
+    },
+
     // Get History
     async getHistory() {
         return this.request('/api/history');

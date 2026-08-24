@@ -34,6 +34,7 @@ class SchemaExtractor:
     def __init__(self):
         self._workbook_cache: dict[str, WorkbookSchema] = {}
         self._dataframe_cache: dict[str, dict[str, pd.DataFrame]] = {}
+        self._original_dataframe_cache: dict[str, dict[str, pd.DataFrame]] = {}
 
     def extract_from_file(self, file_path: str | Path) -> WorkbookSchema:
         """Extract schema from an .xlsx file on disk."""
@@ -74,6 +75,7 @@ class SchemaExtractor:
         cache_key = file_path.name
         self._workbook_cache[cache_key] = workbook_schema
         self._dataframe_cache[cache_key] = dataframes
+        self._original_dataframe_cache[cache_key] = {s: df.copy(deep=True) for s, df in dataframes.items()}
 
         return workbook_schema
 
@@ -91,11 +93,22 @@ class SchemaExtractor:
             result = self.extract_from_file(tmp_path)
             # Re-cache under the original filename
             self._workbook_cache[filename] = result
-            self._dataframe_cache[filename] = self._dataframe_cache.pop(tmp_path.name, {})
+            cached_dfs = self._dataframe_cache.pop(tmp_path.name, {})
+            self._dataframe_cache[filename] = cached_dfs
+            self._original_dataframe_cache[filename] = {s: df.copy(deep=True) for s, df in cached_dfs.items()}
+            self._original_dataframe_cache.pop(tmp_path.name, None)
             result.filename = filename
             return result
         finally:
             tmp_path.unlink(missing_ok=True)
+
+    def get_original_dataframe(self, filename: str, sheet_name: str) -> Optional[pd.DataFrame]:
+        """Retrieve pristine, untouched original DataFrame as uploaded."""
+        file_dfs = self._original_dataframe_cache.get(filename, {})
+        df = file_dfs.get(sheet_name)
+        if df is not None:
+            return df.copy(deep=True)
+        return None
 
     def _extract_sheet_schema(self, df: pd.DataFrame, sheet_name: str) -> SchemaCard:
         """Extract schema card from a DataFrame — dtype inference on sample rows."""

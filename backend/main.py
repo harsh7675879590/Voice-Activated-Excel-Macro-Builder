@@ -142,9 +142,11 @@ async def upload_excel(file: UploadFile = File(...)):
         current_file = file.filename
         current_sheet = workbook_schema.active_sheet
 
-        # Cache the active sheet's DataFrame and backup
+        # Cache the active sheet's DataFrame and pristine original backup
         current_df = schema_extractor.get_dataframe(file.filename, current_sheet)
-        original_df = current_df.copy(deep=True) if current_df is not None else None
+        original_df = schema_extractor.get_original_dataframe(file.filename, current_sheet)
+        if original_df is None and current_df is not None:
+            original_df = current_df.copy(deep=True)
 
         logger.info(
             f"Uploaded: {file.filename} — "
@@ -177,7 +179,8 @@ async def set_active_sheet(request: dict):
 
     current_sheet = sheet_name
     current_df = df
-    original_df = df.copy(deep=True)
+    orig = schema_extractor.get_original_dataframe(current_file, sheet_name)
+    original_df = orig if orig is not None else df.copy(deep=True)
 
     schema = schema_extractor.get_sheet_schema(current_file, sheet_name)
     return {
@@ -360,22 +363,23 @@ async def reject_code():
 
 @app.post("/api/reset-data")
 async def reset_data():
-    """Reset the current DataFrame back to the original unmodified dataset."""
-    global current_df, original_df, current_file, current_sheet
+    """Complete app reset: Wipe all history, delete executed commands, and reset whole app to sample_tax_data.xlsx."""
+    global current_df, original_df, current_file, current_sheet, command_history, pending_code, pending_transcript
 
-    if original_df is None or current_file is None:
-        raise HTTPException(400, "No original data available to restore")
+    command_history.clear()
+    pending_code = None
+    pending_transcript = None
 
-    current_df = original_df.copy(deep=True)
-    updated_schema = schema_extractor.update_sheet_dataframe(current_file, current_sheet, current_df)
+    # Always reset the entire app back to the default sample_tax_data.xlsx
+    return await generate_sample_data()
 
-    logger.info(f"Reset data for {current_file} [{current_sheet}] to {len(current_df)} rows")
 
-    return {
-        "success": True,
-        "message": f"Data reset to original state ({len(current_df)} rows)",
-        "schema": updated_schema.model_dump() if updated_schema else None,
-    }
+@app.post("/api/clear-history")
+async def clear_history():
+    """Clear all command execution history."""
+    global command_history
+    command_history.clear()
+    return {"success": True, "message": "Command history cleared"}
 
 
 @app.get("/api/history")
@@ -419,7 +423,11 @@ async def generate_sample_data():
     Generate a sample tax dataset for demo purposes.
     Useful when no real Excel file is available.
     """
-    global current_file, current_sheet, current_df, original_df
+    global current_file, current_sheet, current_df, original_df, command_history, pending_code, pending_transcript
+
+    command_history.clear()
+    pending_code = None
+    pending_transcript = None
 
     sample_df = pd.DataFrame({
         "Client_Name": [
@@ -497,13 +505,14 @@ async def generate_sample_data():
         row_count=len(sample_df),
     )
 
-    # Cache the schema
+    # Cache the schema and original dataframes
     schema_extractor._workbook_cache[current_file] = WorkbookSchema(
         filename=current_file,
         sheets=[schema],
         active_sheet=current_sheet,
     )
-    schema_extractor._dataframe_cache[current_file] = {current_sheet: sample_df}
+    schema_extractor._dataframe_cache[current_file] = {current_sheet: sample_df.copy(deep=True)}
+    schema_extractor._original_dataframe_cache[current_file] = {current_sheet: sample_df.copy(deep=True)}
 
     return {
         "success": True,
